@@ -1,0 +1,24 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "couples": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null"
+      }
+    },
+    "sessions": {
+      "$date": {
+        "$coupleId": {
+          ".read": "auth != null && ($coupleId.beginsWith(auth.uid + '_') || $coupleId.endsWith('_' + auth.uid))",
+          ".write": "auth != null && ($coupleId.beginsWith(auth.uid + '_') || $coupleId.endsWith('_' + auth.uid))"
+        }
+      }
+    }
+  }
+}

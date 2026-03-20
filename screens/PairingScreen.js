@@ -1,18 +1,29 @@
-import { Animated, Easing, StyleSheet, Text, View, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { Animated, Easing, StyleSheet, Text, View, TextInput, TouchableOpacity, Alert, Share } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
-import { ref, set, onValue, get } from 'firebase/database';
+import { ref, set, update, onValue, get } from 'firebase/database';
 import { LinearGradient } from 'expo-linear-gradient';
 import { database, auth } from '../firebaseConfig';
 import { colors, gradients, shadows, spacing, borderRadius } from '../theme';
 
+const INVITE_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
+
+function generateCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous O/0/I/1
+  return 'UBOTH-' + Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+}
+
 export default function PairingScreen({ userId, userName, partnerName, onPaired }) {
   const [inviteCode, setInviteCode] = useState('');
+  const [codeExpiresAt, setCodeExpiresAt] = useState(null);
   const [showJoinInput, setShowJoinInput] = useState(false);
   const [joinCode, setJoinCode] = useState('');
 
   // Entrance animation
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
+
+  // View-switch fade
+  const switchAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     Animated.parallel([
@@ -31,17 +42,27 @@ export default function PairingScreen({ userId, userName, partnerName, onPaired 
     ]).start();
   }, []);
 
-  useEffect(() => {
-    const code = `UBOTH-${userId.slice(-4).toUpperCase()}`;
-    setInviteCode(code);
+  const switchView = (toJoin) => {
+    Animated.sequence([
+      Animated.timing(switchAnim, { toValue: 0, duration: 150, useNativeDriver: true }),
+      Animated.timing(switchAnim, { toValue: 1, duration: 150, useNativeDriver: true }),
+    ]).start();
+    // Toggle mid-fade so the new content fades in
+    setTimeout(() => setShowJoinInput(toJoin), 150);
+  };
 
-    const userRef = ref(database, `users/${userId}`);
-    set(userRef, {
-      name: userName,
-      partnerName: partnerName,
-      inviteCode: code,
-      createdAt: Date.now(),
-    });
+  useEffect(() => {
+    async function writeCode(code) {
+      const expiresAt = Date.now() + INVITE_EXPIRY_MS;
+      if (userId && userId !== 'dev-user') {
+        await set(ref(database, `inviteCodes/${code}`), { uid: userId, expiresAt });
+        await update(ref(database, `users/${userId}`), { name: userName, partnerName, inviteCode: code });
+      }
+      setInviteCode(code);
+      setCodeExpiresAt(expiresAt);
+    }
+
+    writeCode(generateCode());
 
     const coupleRef = ref(database, `couples/${userId}`);
     const unsubscribe = onValue(coupleRef, (snapshot) => {
@@ -54,36 +75,56 @@ export default function PairingScreen({ userId, userName, partnerName, onPaired 
     return () => unsubscribe();
   }, [userId, userName, partnerName]);
 
+  // Auto-refresh code 1 minute before it expires
+  useEffect(() => {
+    if (!codeExpiresAt) return;
+    const refreshIn = codeExpiresAt - Date.now() - 60000;
+    const timer = setTimeout(async () => {
+      const newCode = generateCode();
+      const expiresAt = Date.now() + INVITE_EXPIRY_MS;
+      await set(ref(database, `inviteCodes/${newCode}`), { uid: userId, expiresAt });
+      await update(ref(database, `users/${userId}`), { inviteCode: newCode });
+      setInviteCode(newCode);
+      setCodeExpiresAt(expiresAt);
+    }, refreshIn > 0 ? refreshIn : 0);
+    return () => clearTimeout(timer);
+  }, [codeExpiresAt]);
+
   const handleJoinWithCode = async () => {
-    if (!joinCode.trim()) return;
+    const code = joinCode.trim().toUpperCase();
+    if (!code) return;
 
     try {
-      const usersRef = ref(database, 'users');
-      const snapshot = await get(usersRef);
-
-      let partnerId = null;
-      snapshot.forEach((child) => {
-        if (child.val().inviteCode === joinCode.trim().toUpperCase()) {
-          partnerId = child.key;
-        }
-      });
+      // Look up partnerId directly from the inviteCodes index
+      const codeSnapshot = await get(ref(database, `inviteCodes/${code}`));
+      const codeData = codeSnapshot.val();
+      const partnerId = codeData?.uid;
 
       if (!partnerId) {
-        Alert.alert('Invalid Code', 'No user found with that invite code');
+        Alert.alert('Invalid Code', 'No user found with that invite code.');
         return;
       }
 
-      await set(ref(database, `couples/${userId}`), {
-        partnerId: partnerId,
-        pairedAt: Date.now(),
-      });
+      if (codeData.expiresAt && codeData.expiresAt < Date.now()) {
+        Alert.alert('Code Expired', 'That code has expired — ask your partner to share a fresh one.');
+        return;
+      }
 
-      await set(ref(database, `couples/${partnerId}`), {
-        partnerId: userId,
-        pairedAt: Date.now(),
-      });
+      if (partnerId === userId) {
+        Alert.alert('Invalid Code', "That's your own code — ask your partner to share theirs.");
+        return;
+      }
 
-      Alert.alert('Success!', `You're now paired with your partner!`);
+      const pairedAt = Date.now();
+
+      // Record pairing in both directions
+      await set(ref(database, `couples/${userId}`), { partnerId, pairedAt });
+      await set(ref(database, `couples/${partnerId}`), { partnerId: userId, pairedAt });
+
+      // Persist partnerId on own record so it survives app restart.
+      // The partner's record is updated by their own onPaired callback.
+      await update(ref(database, `users/${userId}`), { partnerId });
+
       onPaired(partnerId);
     } catch (error) {
       console.error('Error joining:', error);
@@ -98,7 +139,7 @@ export default function PairingScreen({ userId, userName, partnerName, onPaired 
           <Text style={styles.signOutText}>Sign Out</Text>
         </TouchableOpacity>
 
-        <Animated.View style={[styles.content, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+        <Animated.View style={[styles.content, { opacity: Animated.multiply(fadeAnim, switchAnim), transform: [{ translateY: slideAnim }] }]}>
           <Text style={styles.emoji}>☀️</Text>
           <Text style={styles.title}>Enter {partnerName}'s code</Text>
 
@@ -115,7 +156,7 @@ export default function PairingScreen({ userId, userName, partnerName, onPaired 
             <Text style={styles.buttonText}>Join</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => setShowJoinInput(false)}>
+          <TouchableOpacity onPress={() => switchView(false)}>
             <Text style={styles.switchText}>Back to my code</Text>
           </TouchableOpacity>
         </Animated.View>
@@ -129,13 +170,21 @@ export default function PairingScreen({ userId, userName, partnerName, onPaired 
         <Text style={styles.signOutText}>Sign Out</Text>
       </TouchableOpacity>
 
-      <Animated.View style={[styles.content, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+      <Animated.View style={[styles.content, { opacity: Animated.multiply(fadeAnim, switchAnim), transform: [{ translateY: slideAnim }] }]}>
         <Text style={styles.emoji}>🌿</Text>
         <Text style={styles.title}>Share this code with {partnerName}</Text>
 
         <View style={styles.codeCard}>
           <Text style={styles.code}>{inviteCode}</Text>
         </View>
+
+        <TouchableOpacity
+          style={styles.shareButton}
+          onPress={() => Share.share({ message: `Join me on uboth — a meditation app just for us.\n\nEnter my code: ${inviteCode}\n\nDownload: https://apps.apple.com/app/uboth/id6759533464` })}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.shareButtonText}>Share code with {partnerName}</Text>
+        </TouchableOpacity>
 
         <Text style={styles.waitingText}>Waiting for {partnerName} to join...</Text>
         <Text style={styles.subtext}>You'll see the home screen when they enter your code</Text>
@@ -146,7 +195,7 @@ export default function PairingScreen({ userId, userName, partnerName, onPaired 
           <View style={styles.line} />
         </View>
 
-        <TouchableOpacity style={styles.secondaryButton} onPress={() => setShowJoinInput(true)} activeOpacity={0.85}>
+        <TouchableOpacity style={styles.secondaryButton} onPress={() => switchView(true)} activeOpacity={0.85}>
           <Text style={styles.secondaryButtonText}>I have {partnerName}'s code</Text>
         </TouchableOpacity>
       </Animated.View>
@@ -177,7 +226,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   codeCard: {
-    backgroundColor: 'rgba(168, 198, 134, 0.15)',
+    backgroundColor: colors.cardBg,
     padding: spacing.lg,
     borderRadius: borderRadius.card,
     marginBottom: spacing.lg,
@@ -189,7 +238,20 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: '700',
     color: colors.textDark,
-    letterSpacing: 2,
+    letterSpacing: 0.3,
+  },
+  shareButton: {
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.pill,
+    paddingVertical: 14,
+    paddingHorizontal: spacing.xl,
+    marginBottom: spacing.lg,
+    ...shadows.card,
+  },
+  shareButtonText: {
+    color: colors.textDark,
+    fontSize: 16,
+    fontWeight: '600',
   },
   waitingText: {
     fontSize: 18,

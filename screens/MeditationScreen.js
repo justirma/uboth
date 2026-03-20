@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, TouchableOpacity, Animated } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Animated, Easing, AppState } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, gradients, spacing, borderRadius } from '../theme';
@@ -6,6 +6,7 @@ import { colors, gradients, spacing, borderRadius } from '../theme';
 // Runtime-detect expo-audio and provide a safe fallback/stub so the app
 // doesn't crash if the package shape differs in the user's environment.
 let createAudioPlayer;
+let setAudioModeAsync;
 try {
   const expoAudio = require('expo-audio');
   if (expoAudio && typeof expoAudio.createAudioPlayer === 'function') {
@@ -14,46 +15,58 @@ try {
     createAudioPlayer = expoAudio.default;
   } else {
     console.warn('expo-audio player factory not found — using stubbed player.');
-    createAudioPlayer = (src) => ({
-      play: async () => {},
-      pause: async () => {},
-      seekTo: (ms) => {},
-      remove: async () => {},
-    });
+    createAudioPlayer = () => ({ play: async () => {}, pause: async () => {}, seekTo: () => {}, remove: async () => {} });
+  }
+  if (expoAudio && typeof expoAudio.setAudioModeAsync === 'function') {
+    setAudioModeAsync = expoAudio.setAudioModeAsync;
   }
 } catch (e) {
   console.warn('Failed to require expo-audio; using fallback stub.', e);
-  createAudioPlayer = (src) => ({
-    play: async () => {},
-    pause: async () => {},
-    seekTo: (ms) => {},
-    remove: async () => {},
-  });
+  createAudioPlayer = () => ({ play: async () => {}, pause: async () => {}, seekTo: () => {}, remove: async () => {} });
 }
 
 const startBellSource = require('../assets/bell-start.mp3');
 const endBellSource = require('../assets/bell-end.mp3');
 
-export default function MeditationScreen({ prompt, onComplete }) {
+export default function MeditationScreen({ prompt, onComplete, onExit }) {
   const [timeLeft, setTimeLeft] = useState(300);
-  const [isActive, setIsActive] = useState(false);
-  const [countdown, setCountdown] = useState(null); // null, 5, 4, 3, 2, 1
+  const [isActive, setIsActive] = useState(true);
+
 
   const startBellRef = useRef(null);
   const endBellRef = useRef(null);
+  // BUG-03: timestamp used to correct timer after phone lock/background
+  const startTimestampRef = useRef(null);
 
   // Animation refs
   const breatheAnim = useRef(new Animated.Value(1)).current;
-  const countdownFade = useRef(new Animated.Value(0)).current;
+  const screenFade = useRef(new Animated.Value(0)).current;
 
-  // Create audio players on mount
+  // Create audio players, configure silent mode, then fire start bell — all in sequence
   useEffect(() => {
-    try {
-      startBellRef.current = createAudioPlayer(startBellSource);
-      endBellRef.current = createAudioPlayer(endBellSource);
-    } catch (e) {
-      console.warn('Failed to load bell sounds', e);
-    }
+    const setup = async () => {
+      if (typeof setAudioModeAsync === 'function') {
+        await setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});
+      }
+      try {
+        startBellRef.current = createAudioPlayer(startBellSource);
+        endBellRef.current = createAudioPlayer(endBellSource);
+        startBellRef.current.seekTo(0);
+        startBellRef.current.play();
+      } catch (e) {
+        console.warn('Failed to load bell sounds', e);
+      }
+    };
+    setup();
+    startTimestampRef.current = Date.now();
+
+    // Fade in content on mount
+    Animated.timing(screenFade, {
+      toValue: 1,
+      duration: 600,
+      useNativeDriver: true,
+    }).start();
+
 
     return () => {
       try { startBellRef.current?.remove(); } catch (e) {}
@@ -63,19 +76,42 @@ export default function MeditationScreen({ prompt, onComplete }) {
     };
   }, []);
 
+  // BUG-03: track when active period started so we can correct for phone lock
+  useEffect(() => {
+    if (isActive) {
+      startTimestampRef.current = Date.now();
+    } else {
+      startTimestampRef.current = null;
+    }
+  }, [isActive]);
+
+  // BUG-03: when app returns to foreground, catch up any missed seconds
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && startTimestampRef.current !== null) {
+        const elapsed = Math.floor((Date.now() - startTimestampRef.current) / 1000);
+        setTimeLeft(prev => Math.max(0, prev - elapsed));
+        startTimestampRef.current = Date.now();
+      }
+    });
+    return () => subscription.remove();
+  }, []);
+
   // Breathing circle animation — loops during active meditation
   useEffect(() => {
     if (isActive) {
       const loop = Animated.loop(
         Animated.sequence([
           Animated.timing(breatheAnim, {
-            toValue: 1.2,
-            duration: 2000,
+            toValue: 1.15,
+            duration: 4000,
+            easing: Easing.inOut(Easing.sin),
             useNativeDriver: true,
           }),
           Animated.timing(breatheAnim, {
-            toValue: 0.8,
-            duration: 2000,
+            toValue: 1.0,
+            duration: 4000,
+            easing: Easing.inOut(Easing.sin),
             useNativeDriver: true,
           }),
         ])
@@ -87,40 +123,6 @@ export default function MeditationScreen({ prompt, onComplete }) {
     }
   }, [isActive]);
 
-  // Countdown fade-in animation — triggers each time the countdown number changes
-  useEffect(() => {
-    if (countdown !== null && countdown > 0) {
-      countdownFade.setValue(0);
-      Animated.timing(countdownFade, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [countdown]);
-
-  // Countdown before meditation starts
-  useEffect(() => {
-    if (countdown === null || countdown === 0) return;
-
-    const timer = setTimeout(() => {
-      if (countdown === 1) {
-        // Countdown finished - play bell and start meditation
-        try {
-          if (startBellRef.current) {
-            startBellRef.current.seekTo(0);
-            startBellRef.current.play();
-          }
-        } catch (e) {}
-        setCountdown(null);
-        setIsActive(true);
-      } else {
-        setCountdown(countdown - 1);
-      }
-    }, 1000);
-
-    return () => clearTimeout(timer);
-  }, [countdown]);
 
   // Meditation timer
   useEffect(() => {
@@ -148,59 +150,22 @@ export default function MeditationScreen({ prompt, onComplete }) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleStart = () => {
-    try {
-      startBellRef.current?.seekTo(0);
-      endBellRef.current?.seekTo(0);
-    } catch (e) {}
-    setCountdown(5); // Start 5 second countdown
-  };
-
-  const handleComplete = () => {
-    onComplete();
-  };
-
-  // Start screen
-  if (countdown === null && !isActive && timeLeft === 300) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.prompt}>{prompt}</Text>
-        <Text style={styles.duration}>5 minutes</Text>
-
-        <TouchableOpacity style={styles.startButton} onPress={handleStart}>
-          <Text style={styles.startButtonText}>Start</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  // Countdown screen
-  if (countdown !== null && countdown > 0) {
-    return (
-      <LinearGradient colors={gradients.meditation} style={styles.meditatingContainer}>
-        <Text style={styles.countdownText}>Starting in</Text>
-        <Animated.Text style={[styles.countdown, { opacity: countdownFade }]}>
-          {countdown}
-        </Animated.Text>
-      </LinearGradient>
-    );
-  }
-
   // Meditation in progress
   return (
     <LinearGradient colors={gradients.meditation} style={styles.meditatingContainer}>
+      <Animated.View style={[styles.content, { opacity: screenFade }]}>
       <TouchableOpacity
         style={styles.exitButton}
         onPress={() => {
           setIsActive(false);
-          setTimeLeft(300);
-          setCountdown(null);
           try { startBellRef.current?.pause(); startBellRef.current?.seekTo(0); } catch (e) {}
           try { endBellRef.current?.pause(); endBellRef.current?.seekTo(0); } catch (e) {}
+          onExit ? onExit() : onComplete();
         }}
       >
         <Text style={styles.exitText}>&#x2715;</Text>
       </TouchableOpacity>
+
 
       {/* Breathing circle behind the timer */}
       <View style={styles.timerWrapper}>
@@ -214,7 +179,7 @@ export default function MeditationScreen({ prompt, onComplete }) {
       </View>
 
       {timeLeft === 0 && (
-        <TouchableOpacity style={styles.doneButton} onPress={handleComplete}>
+        <TouchableOpacity style={styles.doneButton} onPress={onComplete}>
           <Text style={styles.doneButtonText}>We're Done</Text>
         </TouchableOpacity>
       )}
@@ -235,58 +200,20 @@ export default function MeditationScreen({ prompt, onComplete }) {
           <Text style={styles.pauseText}>{isActive ? '| |' : '\u25B6'}</Text>
         </TouchableOpacity>
       )}
+      </Animated.View>
     </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.xl,
-  },
   meditatingContainer: {
     flex: 1,
+  },
+  content: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: spacing.xl,
-  },
-  prompt: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: colors.textDark,
-    textAlign: 'center',
-    marginBottom: spacing.md,
-    lineHeight: 32,
-  },
-  duration: {
-    fontSize: 18,
-    color: colors.textLight,
-    marginBottom: 48,
-  },
-  startButton: {
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.pill,
-    paddingVertical: 18,
-    paddingHorizontal: 64,
-  },
-  startButtonText: {
-    color: colors.textDark,
-    fontSize: 20,
-    fontWeight: '600',
-  },
-  countdownText: {
-    fontSize: 20,
-    color: colors.textDark,
-    marginBottom: spacing.md,
-    opacity: 0.7,
-  },
-  countdown: {
-    fontSize: 96,
-    fontWeight: '700',
-    color: colors.textDark,
   },
   timerWrapper: {
     justifyContent: 'center',

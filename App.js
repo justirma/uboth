@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, database } from './firebaseConfig';
 import { ref, set, get, onValue, update } from 'firebase/database';
@@ -9,6 +9,11 @@ import { colors } from './theme';
 // Key used to persist "user has seen onboarding" across app restarts.
 // Once written, onboarding is never shown again on this device.
 const ONBOARDING_COMPLETE_KEY = 'ONBOARDING_COMPLETE';
+
+// ⚠️  DEV ONLY — flip to true to skip Apple Sign-In during local testing.
+// Firebase writes will still fail without real auth; for UI iteration only.
+// Must be false before any TestFlight / App Store build.
+const DEV_BYPASS_AUTH = __DEV__ && true;
 
 // Configure how notifications appear when app is in foreground
 Notifications.setNotificationHandler({
@@ -32,8 +37,8 @@ async function registerForPushNotifications(uid) {
     projectId: '62cc65c3-7d6d-48fd-90fb-d2c7e2128f85',
   });
 
-  // Save token to Firebase
-  await update(ref(database, `users/${uid}`), { pushToken: token });
+  // Save token to private path — not readable by other users
+  await set(ref(database, `pushTokens/${uid}`), token);
   return token;
 }
 
@@ -50,6 +55,8 @@ async function sendPushNotification(expoPushToken, title, body) {
   });
 }
 
+import { getTodayPrompt } from './prompts';
+import { useSubscription } from './subscription';
 import NameInput from './screens/NameInput';
 import PairingScreen from './screens/PairingScreen';
 import HomeScreen from './screens/HomeScreen';
@@ -57,15 +64,22 @@ import MoodSelector from './screens/MoodSelector';
 import WaitingScreen from './screens/WaitingScreen';
 import BothReadyScreen from './screens/BothReadyScreen';
 import MeditationScreen from './screens/MeditationScreen';
+import TransitionScreen from './screens/TransitionScreen';
 import AppreciationScreen from './screens/AppreciationScreen';
+import MoodRevealScreen from './screens/MoodRevealScreen';
 import AuthScreen from './screens/AuthScreen';
 import SessionHistoryScreen from './screens/SessionHistoryScreen';
+import PaywallScreen from './screens/PaywallScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
+  const [userProfile, setUserProfile] = useState(
+    DEV_BYPASS_AUTH ? { name: 'Irma', partnerName: 'Courtney', partnerId: 'dev-partner' } : null
+  );
   const [loading, setLoading] = useState(true);
+  const [connectionError, setConnectionError] = useState(false);
+  const [retryCountdown, setRetryCountdown] = useState(30);
   const [currentScreen, setCurrentScreen] = useState('home');
 
   // null = still checking AsyncStorage; true/false = known state.
@@ -75,15 +89,24 @@ export default function App() {
   // const [currentScreen, setCurrentScreen] = useState('meditating');
   const [preMood, setPreMood] = useState(null);
   const [sessionId, setSessionId] = useState(null);
-  const [todayPrompt, setTodayPrompt] = useState('Breathe together. Stay present.');
-  // const [todayPrompt, setTodayPrompt] = useState('');
+  const todayPrompt = getTodayPrompt();
   const [postMood, setPostMood] = useState(null);
   const [partnerPreMood, setPartnerPreMood] = useState(null);
   const [partnerPostMood, setPartnerPostMood] = useState(null);
   const [totalPractices, setTotalPractices] = useState(0);
   const [lastPractice, setLastPractice] = useState(null);
+  const [streak, setStreak] = useState(0);
+
+  // Derived once — used in session logic, subscription check, and stats
+  const coupleId = user && userProfile?.partnerId
+    ? [user.uid, userProfile.partnerId].sort().join('_')
+    : null;
+
+  const { isPremium } = useSubscription(coupleId);
   
   const notificationResponseListener = useRef();
+  const loadingTimeoutRef = useRef(null);
+  const countdownIntervalRef = useRef(null);
 
   // ── Onboarding gate ──
   // Read persisted flag on first mount. This runs once and resolves
@@ -124,74 +147,129 @@ export default function App() {
     };
   }, [user, userProfile, currentScreen]);
 
-  useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(async (user) => {
-      setUser(user);
-      
-      if (user) {
-
-        const userRef = ref(database, `users/${user.uid}`);
+  const retryConnection = async () => {
+    setLoading(true);
+    setConnectionError(false);
+    try {
+      const firebaseUser = auth.currentUser;
+      setUser(firebaseUser);
+      if (firebaseUser) {
+        const userRef = ref(database, `users/${firebaseUser.uid}`);
         const snapshot = await get(userRef);
-        
-        if (snapshot.exists()) {
-          setUserProfile(snapshot.val());
-        } else {
-          setUserProfile(null);
-        }
+        setUserProfile(snapshot.exists() ? snapshot.val() : null);
       } else {
         setUserProfile(null);
       }
-      
+    } catch {
+      setConnectionError(true);
+      setRetryCountdown(30);
+    } finally {
       setLoading(false);
-    });
-    return unsubscribe;
-  }, []);
+    }
+  };
 
-  const getTotalPractices = async () => {
-    if (!user || !userProfile || !userProfile.partnerId) return 0;
+  // Auto-retry every 30 seconds when Firebase is unreachable
+  useEffect(() => {
+    if (!connectionError) return;
 
-    const coupleId = [user.uid, userProfile.partnerId].sort().join('_');
-    const sessionsRef = ref(database, 'sessions');
-    const snapshot = await get(sessionsRef);
+    countdownIntervalRef.current = setInterval(() => {
+      setRetryCountdown(prev => {
+        if (prev <= 1) {
+          retryConnection();
+          return 30;
+        }
+        return prev - 1;
+      });
+    }, 1000);
 
-    if (!snapshot.exists()) return 0;
+    return () => clearInterval(countdownIntervalRef.current);
+  }, [connectionError]);
 
-    const allSessions = snapshot.val();
-    let count = 0;
+  useEffect(() => {
+    // If loading hangs for 12s, Firebase is likely unreachable
+    loadingTimeoutRef.current = setTimeout(() => {
+      setLoading(false);
+      setConnectionError(true);
+      setRetryCountdown(30);
+    }, 12000);
 
-    Object.keys(allSessions).forEach(date => {
-      const daySession = allSessions[date][coupleId];
-      if (daySession?.bothCompleted) {
-        count++;
+    const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
+      clearTimeout(loadingTimeoutRef.current);
+      try {
+        setUser(firebaseUser);
+        if (firebaseUser) {
+          const userRef = ref(database, `users/${firebaseUser.uid}`);
+          const snapshot = await get(userRef);
+          setUserProfile(snapshot.exists() ? snapshot.val() : null);
+        } else if (!DEV_BYPASS_AUTH) {
+          setUserProfile(null);
+        }
+        setConnectionError(false);
+      } catch {
+        // Auth resolved but RTDB is unreachable
+        setConnectionError(true);
+        setRetryCountdown(30);
+      } finally {
+        setLoading(false);
       }
     });
 
-    return count;
-  };
+    return () => {
+      clearTimeout(loadingTimeoutRef.current);
+      unsubscribe();
+    };
+  }, []);
 
-  const getLastPracticeDate = async () => {
-    if (!user || !userProfile || !userProfile.partnerId) return null;
+  const getPracticeStats = async () => {
+    if (!user || !userProfile || !userProfile.partnerId) return;
 
     const coupleId = [user.uid, userProfile.partnerId].sort().join('_');
-    const sessionsRef = ref(database, 'sessions');
-    const snapshot = await get(sessionsRef);
+    const snapshot = await get(ref(database, 'sessions'));
 
-    if (!snapshot.exists()) return null;
+    if (!snapshot.exists()) {
+      setTotalPractices(0);
+      setLastPractice(null);
+      setStreak(0);
+      return;
+    }
 
     const allSessions = snapshot.val();
     const completedDates = Object.keys(allSessions)
       .filter(date => allSessions[date][coupleId]?.bothCompleted)
       .sort()
-      .reverse();
+      .reverse(); // descending: most recent first
 
-    return completedDates[0] || null;
+    setTotalPractices(completedDates.length);
+    setLastPractice(completedDates[0] || null);
+
+    // Streak: count consecutive days ending today or yesterday.
+    // Premium grace: streak stays alive if last session was up to 2 days ago.
+    let currentStreak = 0;
+    if (completedDates.length > 0) {
+      const today = new Date().toLocaleDateString('en-CA');
+      const yesterday = new Date(Date.now() - 86400000).toLocaleDateString('en-CA');
+      const twoDaysAgo = new Date(Date.now() - 2 * 86400000).toLocaleDateString('en-CA');
+      const isActive = completedDates[0] === today || completedDates[0] === yesterday
+        || (isPremium && completedDates[0] === twoDaysAgo);
+      if (isActive) {
+        currentStreak = 1;
+        for (let i = 1; i < completedDates.length; i++) {
+          const prev = new Date(completedDates[i - 1] + 'T00:00:00');
+          const curr = new Date(completedDates[i] + 'T00:00:00');
+          if (Math.round((prev - curr) / 86400000) === 1) {
+            currentStreak++;
+          } else {
+            break;
+          }
+        }
+      }
+    }
+    setStreak(currentStreak);
   };
 
   useEffect(() => {
-    // Load practice stats when user profile loads
     if (userProfile && userProfile.partnerId) {
-      getTotalPractices().then(count => setTotalPractices(count));
-      getLastPracticeDate().then(date => setLastPractice(date));
+      getPracticeStats();
     }
   }, [userProfile]);
 
@@ -214,25 +292,28 @@ export default function App() {
   }, [user, userProfile, currentScreen]);
 
   const handleNameSubmit = async (userName, partnerName) => {
+    const profile = {
+      name: userName,
+      partnerName: partnerName,
+      createdAt: Date.now(),
+    };
     if (user) {
       try {
-        const profile = {
-          name: userName,
-          partnerName: partnerName,
-          createdAt: Date.now(),
-        };
-        
         const userRef = ref(database, `users/${user.uid}`);
         await set(userRef, profile);
-        setUserProfile(profile);
       } catch (error) {
         console.error('Error saving profile:', error);
       }
     }
+    setUserProfile(prev => ({ ...profile, partnerId: prev?.partnerId }));
   };
 
-  const handlePaired = (partnerId) => {
+  const handlePaired = async (partnerId) => {
     setUserProfile(prev => ({ ...prev, partnerId }));
+    // Persist so partnerId survives app restart
+    if (user) {
+      await update(ref(database, `users/${user.uid}`), { partnerId });
+    }
   };
 
   const handleSignOut = () => {
@@ -241,65 +322,75 @@ export default function App() {
   };
 
   const startMeditationSession = async (mood) => {
-    if (!user || !userProfile || !userProfile.partnerId) return;
-    
+    if (!userProfile || !userProfile.partnerId) return;
+    if (!user) {
+      // Dev bypass — skip Firebase, go straight to meditation
+      setPreMood(mood);
+      setCurrentScreen('bothReady');
+      return;
+    }
+
     const todayDate = new Date().toLocaleDateString('en-CA');
     const coupleId = [user.uid, userProfile.partnerId].sort().join('_');
-    
-    const sessionRef = ref(database, `sessions/${todayDate}/${coupleId}`);
-    const sessionSnapshot = await get(sessionRef);
-    const existingSession = sessionSnapshot.val();
-    
-    // Check if partner already started a session we can join
-    const canJoin = existingSession
-      && existingSession.partner1
-      && existingSession.partner1.userId !== user.uid
-      && !existingSession.bothReady;
 
-    if (canJoin) {
-      // Partner is waiting, we're joining as partner2
-      await set(ref(database, `sessions/${todayDate}/${coupleId}/partner2`), {
-        userId: user.uid,
-        name: userProfile.name,
-        preMood: mood.value,
-        ready: true,
-        timestamp: Date.now(),
-      });
-      await set(ref(database, `sessions/${todayDate}/${coupleId}/bothReady`), true);
-    } else {
-      // We're first (or restarting) — create fresh session
-      await set(sessionRef, {
-        partner1: {
+    try {
+      const sessionRef = ref(database, `sessions/${todayDate}/${coupleId}`);
+      const sessionSnapshot = await get(sessionRef);
+      const existingSession = sessionSnapshot.val();
+
+      // Check if partner already started a session we can join
+      const canJoin = existingSession
+        && existingSession.partner1
+        && existingSession.partner1.userId !== user.uid
+        && !existingSession.bothReady;
+
+      if (canJoin) {
+        // Partner is waiting, we're joining as partner2
+        await set(ref(database, `sessions/${todayDate}/${coupleId}/partner2`), {
           userId: user.uid,
           name: userProfile.name,
           preMood: mood.value,
           ready: true,
           timestamp: Date.now(),
-        },
-        partner2: {
-          ready: false,
-        },
-        bothReady: false,
-        meditationStarted: false,
-        completed: false,
-      });
+        });
+        await set(ref(database, `sessions/${todayDate}/${coupleId}/bothReady`), true);
+      } else {
+        // We're first (or restarting) — create fresh session
+        await set(sessionRef, {
+          partner1: {
+            userId: user.uid,
+            name: userProfile.name,
+            preMood: mood.value,
+            ready: true,
+            timestamp: Date.now(),
+          },
+          partner2: {
+            ready: false,
+          },
+          bothReady: false,
+          meditationStarted: false,
+          completed: false,
+        });
 
-      // Notify partner
-      try {
-        const partnerSnapshot = await get(ref(database, `users/${userProfile.partnerId}/pushToken`));
-        const partnerToken = partnerSnapshot.val();
-        if (partnerToken) {
-          await sendPushNotification(
-            partnerToken,
-            'uboth',
-            `${userProfile.name} is ready to meditate — join them!`
-          );
+        // Notify partner
+        try {
+          const partnerSnapshot = await get(ref(database, `pushTokens/${userProfile.partnerId}`));
+          const partnerToken = partnerSnapshot.val();
+          if (partnerToken) {
+            await sendPushNotification(
+              partnerToken,
+              'uboth',
+              `${userProfile.name} is ready to meditate — join them!`
+            );
+          }
+        } catch (e) {
+          console.warn('Failed to send push notification', e);
         }
-      } catch (e) {
-        console.warn('Failed to send push notification', e);
       }
+    } catch (e) {
+      console.warn('Failed to write session to Firebase (expected in dev bypass mode):', e);
     }
-    
+
     setSessionId(`${todayDate}/${coupleId}`);
     setPreMood(mood);
     setCurrentScreen('waiting');
@@ -316,14 +407,31 @@ export default function App() {
     );
   }
 
-  // ── Gate 2: first-time user → show onboarding ──
+  // ── Gate 2: Firebase unreachable ──
+  if (connectionError) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.title}>uboth</Text>
+        <Text style={styles.outageHeading}>Having trouble connecting</Text>
+        <Text style={styles.outageBody}>
+          Your data is safe. We'll keep trying to reconnect.
+        </Text>
+        <Text style={styles.outageCountdown}>Retrying in {retryCountdown}s</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={retryConnection}>
+          <Text style={styles.retryButtonText}>Retry now</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // ── Gate 3: first-time user → show onboarding ──
   // Onboarding always appears before sign-in so there's no auth dependency.
   if (!hasSeenOnboarding) {
     return <OnboardingScreen onComplete={handleOnboardingComplete} />;
   }
 
-  // ── Gate 3: not authenticated → sign in ──
-  if (!user) {
+  // ── Gate 4: not authenticated → sign in ──
+  if (!user && !DEV_BYPASS_AUTH) {
     return <AuthScreen />;
   }
 
@@ -336,7 +444,7 @@ export default function App() {
   if (!userProfile.partnerId) {
     return (
       <PairingScreen
-        userId={user.uid}
+        userId={user?.uid ?? 'dev-user'}
         userName={userProfile.name}
         partnerName={userProfile.partnerName}
         onPaired={handlePaired}
@@ -356,34 +464,36 @@ export default function App() {
       partnerPreMood={partnerPreMood}
       partnerPostMood={partnerPostMood}
       onComplete={async (appreciationText) => {
-        // Save appreciation to Firebase
-        if (sessionId && user) {
-          // Check which partner this user is
-          const sessionRef = ref(database, `sessions/${sessionId}`);
-          const snapshot = await get(sessionRef);
-          const sessionData = snapshot.val();
-          
-          const partnerKey = sessionData.partner1.userId === user.uid ? 'partner1' : 'partner2';
-          
-          if (appreciationText && appreciationText.trim()) {
-            await set(ref(database, `sessions/${sessionId}/${partnerKey}/appreciation`), appreciationText);
-          }
-          
-          // Check if both completed
-          if (sessionData.partner1.completed && sessionData.partner2.completed) {
-            // Both completed! Mark session as fully complete
-            await set(ref(database, `sessions/${sessionId}/bothCompleted`), true);
-            await set(ref(database, `sessions/${sessionId}/completedAt`), Date.now());
+        try {
+          // Save appreciation to Firebase
+          if (sessionId && user) {
+            const sessionRef = ref(database, `sessions/${sessionId}`);
+            const snapshot = await get(sessionRef);
+            const sessionData = snapshot.val();
 
-            // Recalculate stats
-            const newTotal = await getTotalPractices();
-            const newLast = await getLastPracticeDate();
-            setTotalPractices(newTotal);
-            setLastPractice(newLast);
+            if (sessionData) {
+              const partnerKey = sessionData.partner1?.userId === user.uid ? 'partner1' : 'partner2';
+
+              if (appreciationText && appreciationText.trim()) {
+                await set(ref(database, `sessions/${sessionId}/${partnerKey}/appreciation`), appreciationText);
+              }
+
+              // Re-fetch to get the freshest completed flags from both partners
+              // (partner may have finished postMood while we were on AppreciationScreen)
+              const freshSnapshot = await get(sessionRef);
+              const freshData = freshSnapshot.val();
+              if (freshData?.partner1?.completed && freshData?.partner2?.completed) {
+                await set(ref(database, `sessions/${sessionId}/bothCompleted`), true);
+                await set(ref(database, `sessions/${sessionId}/completedAt`), Date.now());
+                await getPracticeStats();
+              }
+            }
           }
+        } catch (e) {
+          console.warn('Failed to save appreciation:', e);
+        } finally {
+          setCurrentScreen('home');
         }
-        
-        setCurrentScreen('home');
       }}
     />
   );
@@ -396,57 +506,67 @@ if (currentScreen === 'postMood') {
       isPost={true}
       onSelectMood={async (mood) => {
         setPostMood(mood);
-        
-        // Save post-mood to Firebase
+
         if (sessionId && user) {
-          // Check which partner this user is
           const sessionRef = ref(database, `sessions/${sessionId}`);
           const snapshot = await get(sessionRef);
           const sessionData = snapshot.val();
-          
+
           const partnerKey = sessionData.partner1.userId === user.uid ? 'partner1' : 'partner2';
-          
+          const partnerObj = partnerKey === 'partner1' ? sessionData.partner2 : sessionData.partner1;
+
           await set(ref(database, `sessions/${sessionId}/${partnerKey}/postMood`), mood.value);
           await set(ref(database, `sessions/${sessionId}/${partnerKey}/completed`), true);
           await set(ref(database, `sessions/${sessionId}/${partnerKey}/completedAt`), Date.now());
+
+          // Capture partner's moods for the reveal screen (may be null if they haven't finished yet)
+          setPartnerPreMood(partnerObj?.preMood || null);
+          setPartnerPostMood(partnerObj?.postMood || null);
         }
-        
-        setCurrentScreen('appreciation');
+
+        setCurrentScreen('moodReveal');
       }}
     />
   );
 }
+// Mood reveal screen
+if (currentScreen === 'moodReveal') {
+  return (
+    <MoodRevealScreen
+      userName={userProfile.name}
+      partnerName={userProfile.partnerName}
+      userPreMood={preMood}
+      userPostMood={postMood}
+      partnerPreMood={partnerPreMood}
+      partnerPostMood={partnerPostMood}
+      onContinue={() => setCurrentScreen('appreciation')}
+    />
+  );
+}
+
 // Meditation screen
 if (currentScreen === 'meditating') {
   return (
     <MeditationScreen
       prompt={todayPrompt}
-      onComplete={() => setCurrentScreen('postMood')}
+      onComplete={() => setCurrentScreen('transition')}
+      onExit={() => setCurrentScreen('home')}
     />
   );
 }
 
+// Post-meditation landing moment
+if (currentScreen === 'transition') {
+  return <TransitionScreen onComplete={() => setCurrentScreen('postMood')} />;
+}
+
   // Both ready screen
   if (currentScreen === 'bothReady') {
-    const today = new Date();
-    const dayName = today.toLocaleDateString('en-US', { weekday: 'long' });
-    const prompts = {
-      'Sunday': 'Root down together. Feel the ground beneath you both.',
-      'Monday': 'Presence is a choice. Choose it now.',
-      'Tuesday': 'Let go of what you\'re holding. Breathe it out.',
-      'Wednesday': 'Notice where you touch. Stay here.',
-      'Thursday': 'Gratitude lives in the small things. Find one.',
-      'Friday': 'Open to each other. Soften what\'s hard.',
-      'Saturday': 'Breathe in sync. Let your rhythms meet.',
-    };
-    
     return (
       <BothReadyScreen
         partnerName={userProfile.partnerName}
-        onStartMeditation={() => {
-          setTodayPrompt(prompts[dayName]);
-          setCurrentScreen('meditating');
-        }}
+        onStartMeditation={() => setCurrentScreen('meditating')}
+        onCancel={() => setCurrentScreen('home')}
       />
     );
   }
@@ -454,7 +574,10 @@ if (currentScreen === 'meditating') {
   // Waiting screen
   if (currentScreen === 'waiting') {
     return (
-      <WaitingScreen partnerName={userProfile.partnerName} />
+      <WaitingScreen
+        partnerName={userProfile.partnerName}
+        onCancel={() => setCurrentScreen('home')}
+      />
     );
   }
 
@@ -462,12 +585,19 @@ if (currentScreen === 'meditating') {
   if (currentScreen === 'history') {
     return (
       <SessionHistoryScreen
-        userId={user.uid}
+        userId={user?.uid ?? 'dev-user'}
         partnerId={userProfile.partnerId}
         userName={userProfile.name}
+        isPremium={isPremium}
         onBack={() => setCurrentScreen('home')}
+        onUpgrade={() => setCurrentScreen('paywall')}
       />
     );
+  }
+
+  // Paywall
+  if (currentScreen === 'paywall') {
+    return <PaywallScreen onBack={() => setCurrentScreen('history')} />;
   }
 
   // Mood selector
@@ -475,6 +605,8 @@ if (currentScreen === 'meditating') {
     return (
       <MoodSelector
         onSelectMood={startMeditationSession}
+        partnerName={userProfile.partnerName}
+        onBack={() => setCurrentScreen('home')}
       />
     );
   }
@@ -486,6 +618,7 @@ if (currentScreen === 'meditating') {
       partnerName={userProfile.partnerName}
       totalPractices={totalPractices}
       lastPractice={lastPractice}
+      streak={streak}
       onSignOut={handleSignOut}
       onStartPractice={() => setCurrentScreen('moodSelector')}
       onViewHistory={() => setCurrentScreen('history')}
@@ -506,5 +639,37 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.textDark,
     marginBottom: 12,
+  },
+  outageHeading: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.textDark,
+    marginTop: 24,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  outageBody: {
+    fontSize: 15,
+    color: colors.textLight,
+    textAlign: 'center',
+    paddingHorizontal: 32,
+    lineHeight: 22,
+  },
+  outageCountdown: {
+    fontSize: 13,
+    color: colors.textLight,
+    marginTop: 16,
+  },
+  retryButton: {
+    marginTop: 20,
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: colors.textLight,
+  },
+  retryButtonText: {
+    fontSize: 15,
+    color: colors.textDark,
   },
 });

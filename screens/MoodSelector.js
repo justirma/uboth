@@ -1,18 +1,20 @@
 import { StyleSheet, Text, View, TouchableOpacity, Animated } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../theme';
+import { colors, gradients, moods } from '../theme';
 
+// Colors now sourced from theme.js moods token — never hardcoded here.
+// Emojis updated to match the warm terracotta palette's emotional register.
 const MOODS = [
-  { emoji: '🌊', label: 'Anxious', value: 'anxious', color: '#9FD4C1' },
-  { emoji: '🍂', label: 'Stressed', value: 'stressed', color: '#C4B86A' },
-  { emoji: '🌫️', label: 'Foggy', value: 'foggy', color: '#B5C4A8' },
-  { emoji: '🌿', label: 'Calm', value: 'calm', color: '#A8C686' },
-  { emoji: '☀️', label: 'Grateful', value: 'grateful', color: '#F4D58D' },
-  { emoji: '🌾', label: 'Peaceful', value: 'peaceful', color: '#D4E5B8' },
+  { emoji: '🌊', label: 'Anxious',  value: 'anxious',  color: moods.anxious  },
+  { emoji: '🍂', label: 'Stressed', value: 'stressed', color: moods.stressed },
+  { emoji: '🌫️', label: 'Foggy',    value: 'foggy',    color: moods.foggy    },
+  { emoji: '🌿', label: 'Calm',     value: 'calm',     color: moods.calm     },
+  { emoji: '✨', label: 'Grateful', value: 'grateful', color: moods.grateful },
+  { emoji: '🌸', label: 'Peaceful', value: 'peaceful', color: moods.peaceful },
 ];
 
-export default function MoodSelector({ onSelectMood, isPost = false }) {
+export default function MoodSelector({ onSelectMood, isPost = false, partnerName, onBack }) {
   const [selectedMood, setSelectedMood] = useState(null);
 
   // Per-bubble animated scale values
@@ -20,6 +22,9 @@ export default function MoodSelector({ onSelectMood, isPost = false }) {
 
   // Per-bubble entrance opacity
   const fadeAnims = useRef(MOODS.map(() => new Animated.Value(0))).current;
+
+  // Continue button fade-in
+  const buttonAnim = useRef(new Animated.Value(0)).current;
 
   // Staggered entrance animation
   useEffect(() => {
@@ -36,6 +41,11 @@ export default function MoodSelector({ onSelectMood, isPost = false }) {
 
   const handleSelect = (mood) => {
     setSelectedMood(mood);
+    Animated.timing(buttonAnim, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
 
     // Animate scales: spring selected to 1.1, reset others to 1
     MOODS.forEach((m, index) => {
@@ -56,8 +66,18 @@ export default function MoodSelector({ onSelectMood, isPost = false }) {
 
   return (
     <LinearGradient colors={gradients.screenBg} style={styles.container}>
+      {onBack && (
+        <TouchableOpacity style={styles.backButton} onPress={onBack}>
+          <Text style={styles.backText}>✕</Text>
+        </TouchableOpacity>
+      )}
       <Text style={styles.title}>
-        {isPost ? 'How do you feel now?' : 'How are you feeling?'}
+        {isPost ? 'how do you feel now?' : 'how are you feeling?'}
+      </Text>
+      <Text style={styles.subtitle}>
+        {!isPost && (partnerName
+          ? `we'll share this with ${partnerName.toLowerCase()} after you both finish.`
+          : `we'll share your mood after you both finish.`)}
       </Text>
 
       <View style={styles.moodGrid}>
@@ -78,17 +98,19 @@ export default function MoodSelector({ onSelectMood, isPost = false }) {
               onPress={() => handleSelect(mood)}
             >
               <Text style={styles.moodEmoji}>{mood.emoji}</Text>
-              <Text style={styles.moodLabel}>{mood.label}</Text>
+              <Text style={styles.moodLabel}>{mood.label.toLowerCase()}</Text>
             </TouchableOpacity>
           </Animated.View>
         ))}
       </View>
 
-      {selectedMood && (
+      <Text style={styles.breathingCue}>during your session, try: breathe in 4 · hold 5 · out 8</Text>
+
+      <Animated.View style={{ opacity: buttonAnim }}>
         <TouchableOpacity style={styles.button} onPress={handleContinue}>
-          <Text style={styles.buttonText}>Continue</Text>
+          <Text style={styles.buttonText}>continue</Text>
         </TouchableOpacity>
-      )}
+      </Animated.View>
     </LinearGradient>
   );
 }
@@ -104,7 +126,32 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.textDark,
     textAlign: 'center',
-    marginBottom: 48,
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: colors.textLight,
+    textAlign: 'center',
+    marginBottom: 32,
+    opacity: 0.8,
+    minHeight: 20,
+  },
+  backButton: {
+    position: 'absolute',
+    top: 60,
+    right: 24,
+  },
+  backText: {
+    fontSize: 18,
+    color: colors.textLight,
+    opacity: 0.4,
+  },
+  breathingCue: {
+    fontSize: 13,
+    color: colors.textLight,
+    textAlign: 'center',
+    opacity: 0.7,
+    marginBottom: 20,
   },
   moodGrid: {
     flexDirection: 'row',

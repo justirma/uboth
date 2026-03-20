@@ -31,7 +31,9 @@ function formatDate(dateStr) {
   });
 }
 
-export default function SessionHistoryScreen({ userId, partnerId, userName, onBack }) {
+const FREE_SESSION_LIMIT = 7;
+
+export default function SessionHistoryScreen({ userId, partnerId, userName, isPremium, onBack, onUpgrade }) {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -79,6 +81,12 @@ export default function SessionHistoryScreen({ userId, partnerId, userName, onBa
     const p1 = partner1 || {};
     const p2 = partner2 || {};
 
+    // Determine which partner is the current user
+    const myPartner = p1.userId === userId ? p2 : p1;
+    const me = p1.userId === userId ? p1 : p2;
+
+    const hasAppreciations = me.appreciation || myPartner.appreciation;
+
     return (
       <View key={date} style={styles.sessionCard}>
         <Text style={styles.sessionDate}>{formatDate(date)}</Text>
@@ -97,20 +105,34 @@ export default function SessionHistoryScreen({ userId, partnerId, userName, onBa
           </View>
         </View>
 
-        {(p1.appreciation || p2.appreciation) && (
+        {hasAppreciations && (
           <View style={styles.appreciationSection}>
             <Text style={styles.sectionLabel}>Appreciations</Text>
-            {p1.appreciation ? (
+
+            {/* Your appreciation — always visible */}
+            {me.appreciation ? (
               <View style={styles.appreciationBubble}>
-                <Text style={styles.appreciationAuthor}>{p1.name || 'Partner 1'}</Text>
-                <Text style={styles.appreciationText}>"{p1.appreciation}"</Text>
+                <Text style={styles.appreciationAuthor}>You</Text>
+                <Text style={styles.appreciationText}>"{me.appreciation}"</Text>
               </View>
             ) : null}
-            {p2.appreciation ? (
-              <View style={styles.appreciationBubble}>
-                <Text style={styles.appreciationAuthor}>{p2.name || 'Partner 2'}</Text>
-                <Text style={styles.appreciationText}>"{p2.appreciation}"</Text>
-              </View>
+
+            {/* Partner's appreciation — locked for free users */}
+            {myPartner.appreciation ? (
+              isPremium ? (
+                <View style={styles.appreciationBubble}>
+                  <Text style={styles.appreciationAuthor}>{myPartner.name || 'Partner'}</Text>
+                  <Text style={styles.appreciationText}>"{myPartner.appreciation}"</Text>
+                </View>
+              ) : (
+                <TouchableOpacity style={styles.lockedBubble} onPress={onUpgrade} activeOpacity={0.8}>
+                  <Text style={styles.lockedEmoji}>💌</Text>
+                  <View style={styles.lockedTextGroup}>
+                    <Text style={styles.lockedTitle}>{myPartner.name || 'Partner'} left you a note</Text>
+                    <Text style={styles.lockedSub}>uboth+ · Tap to unlock</Text>
+                  </View>
+                </TouchableOpacity>
+              )
             ) : null}
           </View>
         )}
@@ -147,7 +169,17 @@ export default function SessionHistoryScreen({ userId, partnerId, userName, onBa
           <Text style={styles.countText}>
             {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'} together
           </Text>
-          {sessions.map((session) => renderSession(session))}
+          {(isPremium ? sessions : sessions.slice(0, FREE_SESSION_LIMIT)).map((session) => renderSession(session))}
+
+          {!isPremium && sessions.length > FREE_SESSION_LIMIT && (
+            <TouchableOpacity style={styles.upgradeCard} onPress={onUpgrade} activeOpacity={0.85}>
+              <Text style={styles.upgradeEmoji}>📖</Text>
+              <Text style={styles.upgradeTitle}>
+                {sessions.length - FREE_SESSION_LIMIT} more {sessions.length - FREE_SESSION_LIMIT === 1 ? 'session' : 'sessions'} in your history
+              </Text>
+              <Text style={styles.upgradeSub}>Unlock full journal with uboth+</Text>
+            </TouchableOpacity>
+          )}
         </ScrollView>
       )}
     </LinearGradient>
@@ -191,7 +223,7 @@ const styles = StyleSheet.create({
     color: colors.textLight,
     textAlign: 'center',
     marginBottom: 20,
-    textTransform: 'uppercase',
+    textTransform: 'none',
     letterSpacing: 1,
   },
   sessionCard: {
@@ -215,7 +247,7 @@ const styles = StyleSheet.create({
   sectionLabel: {
     fontSize: 12,
     color: colors.textLight,
-    textTransform: 'uppercase',
+    textTransform: 'none',
     letterSpacing: 1,
     marginBottom: spacing.xs,
   },
@@ -257,6 +289,60 @@ const styles = StyleSheet.create({
     color: colors.textDark,
     fontStyle: 'italic',
     lineHeight: 22,
+  },
+  lockedBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.sm,
+  },
+  lockedEmoji: {
+    fontSize: 22,
+  },
+  lockedTextGroup: {
+    flex: 1,
+  },
+  lockedTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textDark,
+    marginBottom: 2,
+  },
+  lockedSub: {
+    fontSize: 12,
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  upgradeCard: {
+    backgroundColor: colors.cardBg,
+    borderRadius: borderRadius.card,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    alignItems: 'center',
+    gap: spacing.xs,
+    ...shadows.subtle,
+  },
+  upgradeEmoji: {
+    fontSize: 28,
+    marginBottom: 4,
+  },
+  upgradeTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textDark,
+    textAlign: 'center',
+  },
+  upgradeSub: {
+    fontSize: 13,
+    color: colors.primary,
+    fontWeight: '600',
   },
   emptyState: {
     flex: 1,

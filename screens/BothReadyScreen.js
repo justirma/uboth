@@ -1,42 +1,46 @@
-import { StyleSheet, Text, View, Animated } from 'react-native';
+import { StyleSheet, Text, View, Animated, TouchableOpacity } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, gradients } from '../theme';
 
-export default function BothReadyScreen({ partnerName, onStartMeditation }) {
+export default function BothReadyScreen({ partnerName, prompt, onStartMeditation, onCancel }) {
+  const [pausing, setPausing] = useState(true);
   const [countdown, setCountdown] = useState(3);
 
-  // Countdown spring scale
-  const countdownScale = useRef(new Animated.Value(0)).current;
+  // Countdown fade (replaces spring — quieter, more meditative)
+  const countdownFade = useRef(new Animated.Value(0)).current;
 
   // Heart pulse
   const heartScale = useRef(new Animated.Value(1)).current;
 
-  // Floating icons
-  const floatAnim1 = useRef(new Animated.Value(0)).current;
-  const floatAnim2 = useRef(new Animated.Value(0)).current;
-
+  // 3s pause before countdown begins
   useEffect(() => {
+    const t = setTimeout(() => setPausing(false), 3000);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Countdown only runs after pause
+  useEffect(() => {
+    if (pausing) return;
     if (countdown > 0) {
-      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
-      return () => clearTimeout(timer);
+      const t = setTimeout(() => setCountdown(c => c - 1), 1000);
+      return () => clearTimeout(t);
     } else {
       onStartMeditation();
     }
-  }, [countdown]);
+  }, [pausing, countdown]);
 
-  // Spring in countdown number each time it changes
+  // Fade in each countdown number — only after pause ends
   useEffect(() => {
-    if (countdown > 0) {
-      countdownScale.setValue(0);
-      Animated.spring(countdownScale, {
+    if (!pausing && countdown > 0) {
+      countdownFade.setValue(0);
+      Animated.timing(countdownFade, {
         toValue: 1,
-        friction: 5,
-        tension: 80,
+        duration: 400,
         useNativeDriver: true,
       }).start();
     }
-  }, [countdown]);
+  }, [pausing, countdown]);
 
   // Heart pulse loop
   useEffect(() => {
@@ -58,63 +62,26 @@ export default function BothReadyScreen({ partnerName, onStartMeditation }) {
     return () => pulse.stop();
   }, []);
 
-  // Floating icons
-  useEffect(() => {
-    const float1 = Animated.loop(
-      Animated.sequence([
-        Animated.timing(floatAnim1, {
-          toValue: -8,
-          duration: 1500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(floatAnim1, {
-          toValue: 8,
-          duration: 1500,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    const float2 = Animated.loop(
-      Animated.sequence([
-        Animated.timing(floatAnim2, {
-          toValue: 6,
-          duration: 1800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(floatAnim2, {
-          toValue: -6,
-          duration: 1800,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    float1.start();
-    float2.start();
-    return () => { float1.stop(); float2.stop(); };
-  }, []);
-
   return (
-    <LinearGradient colors={gradients.screenBg} style={styles.container}>
-      <View style={styles.iconRow}>
-        <Animated.Text style={[styles.icon, { transform: [{ translateY: floatAnim1 }] }]}>
-          🌿
-        </Animated.Text>
-        <Animated.Text style={[styles.icon, { transform: [{ translateY: floatAnim2 }] }]}>
-          ☀️
-        </Animated.Text>
-      </View>
-
+    <LinearGradient colors={gradients.meditation} style={styles.container}>
       <Animated.Text style={[styles.heart, { transform: [{ scale: heartScale }] }]}>
-        💚
+        🧡
       </Animated.Text>
 
-      <Text style={styles.title}>You're both here</Text>
-      <Text style={styles.subtitle}>Let's breathe together</Text>
+      <Text style={styles.title}>you're both here</Text>
 
-      {countdown > 0 && (
-        <Animated.Text style={[styles.countdown, { transform: [{ scale: countdownScale }] }]}>
-          {countdown}
-        </Animated.Text>
+      <View style={styles.countdownContainer}>
+        {!pausing && countdown > 0 && (
+          <Animated.Text style={[styles.countdown, { opacity: countdownFade }]}>
+            {countdown}
+          </Animated.Text>
+        )}
+      </View>
+
+      {pausing && onCancel && (
+        <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
+          <Text style={styles.cancelText}>Not now</Text>
+        </TouchableOpacity>
       )}
     </LinearGradient>
   );
@@ -126,14 +93,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 32,
-  },
-  iconRow: {
-    flexDirection: 'row',
-    gap: 20,
-    marginBottom: 24,
-  },
-  icon: {
-    fontSize: 48,
   },
   heart: {
     fontSize: 72,
@@ -148,11 +107,32 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 18,
     color: colors.textLight,
-    marginBottom: 40,
+    marginBottom: 24,
+  },
+  breathingCue: {
+    fontSize: 14,
+    color: colors.textDark,
+    opacity: 0.5,
+    marginBottom: 24,
+    letterSpacing: 0.3,
+  },
+  countdownContainer: {
+    height: 120,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   countdown: {
     fontSize: 96,
-    fontWeight: '700',
-    color: colors.primary,
+    fontWeight: '300',
+    color: colors.textDark,
+  },
+  cancelButton: {
+    position: 'absolute',
+    bottom: 60,
+  },
+  cancelText: {
+    fontSize: 15,
+    color: colors.textDark,
+    opacity: 0.4,
   },
 });

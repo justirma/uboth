@@ -1,38 +1,55 @@
-import { StyleSheet, Text, Animated } from 'react-native';
-import { useEffect, useRef } from 'react';
+import { StyleSheet, Text, TouchableOpacity, Animated, Easing } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, gradients, spacing } from '../theme';
 
-export default function WaitingScreen({ partnerName }) {
+export default function WaitingScreen({ partnerName, onCancel }) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const textFade = useRef(new Animated.Value(0)).current;
+  const hintFade = useRef(new Animated.Value(0)).current;
+  const [showHint, setShowHint] = useState(false);
 
   useEffect(() => {
-    // Pulsing plant emoji — scale 0.9 to 1.1 on a 3-second loop
+    // Gentle breathing pulse — 1.0 to 1.1, no shrink below resting
     const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, {
           toValue: 1.1,
-          duration: 1500,
+          duration: 2000,
+          easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
         Animated.timing(pulseAnim, {
-          toValue: 0.9,
-          duration: 1500,
+          toValue: 1.0,
+          duration: 2000,
+          easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
       ])
     );
     pulse.start();
 
-    // Fade in text
+    // Fade in main text
     Animated.timing(textFade, {
       toValue: 1,
       duration: 600,
       useNativeDriver: true,
     }).start();
 
-    return () => pulse.stop();
+    // After 30s, swap subtext to a helpful hint
+    const hintTimer = setTimeout(() => {
+      setShowHint(true);
+      Animated.timing(hintFade, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }).start();
+    }, 30000);
+
+    return () => {
+      pulse.stop();
+      clearTimeout(hintTimer);
+    };
   }, []);
 
   return (
@@ -40,12 +57,26 @@ export default function WaitingScreen({ partnerName }) {
       <Animated.Text style={[styles.plant, { transform: [{ scale: pulseAnim }] }]}>
         🌿
       </Animated.Text>
+
       <Animated.Text style={[styles.waitingText, { opacity: textFade }]}>
-        Waiting for {partnerName}...
+        Your nudge is on the way
       </Animated.Text>
-      <Animated.Text style={[styles.subtext, { opacity: textFade }]}>
-        {partnerName} was notified
-      </Animated.Text>
+
+      {showHint ? (
+        <Animated.Text style={[styles.subtext, { opacity: hintFade }]}>
+          Still waiting? You can go back and try again.
+        </Animated.Text>
+      ) : (
+        <Animated.Text style={[styles.subtext, { opacity: textFade }]}>
+          {partnerName} will join when they're ready
+        </Animated.Text>
+      )}
+
+      {onCancel && (
+        <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
+          <Text style={styles.cancelText}>Go back</Text>
+        </TouchableOpacity>
+      )}
     </LinearGradient>
   );
 }
@@ -63,12 +94,25 @@ const styles = StyleSheet.create({
   },
   waitingText: {
     fontSize: 20,
+    fontWeight: '500',
     color: colors.textDark,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.sm,
+    textAlign: 'center',
   },
   subtext: {
     fontSize: 14,
     color: colors.textLight,
-    opacity: 0.7,
+    textAlign: 'center',
+    maxWidth: 260,
+    lineHeight: 20,
+  },
+  cancelButton: {
+    position: 'absolute',
+    bottom: 60,
+  },
+  cancelText: {
+    fontSize: 15,
+    color: colors.textLight,
+    opacity: 0.4,
   },
 });

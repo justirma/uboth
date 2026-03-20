@@ -1,4 +1,4 @@
-import { Animated, Easing, StyleSheet, Text, View, TextInput, TouchableOpacity } from 'react-native';
+import { Animated, Easing, StyleSheet, Text, View, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, gradients, shadows, spacing, borderRadius } from '../theme';
@@ -6,6 +6,7 @@ import { colors, gradients, shadows, spacing, borderRadius } from '../theme';
 export default function NameInput({ onComplete }) {
   const [name, setName] = useState('');
   const [partnerName, setPartnerName] = useState('');
+  const partnerInputRef = useRef(null);
 
   // Entrance animation
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -36,48 +37,62 @@ export default function NameInput({ onComplete }) {
 
   return (
     <LinearGradient colors={gradients.screenBg} style={styles.container}>
-      <Animated.View style={[styles.inner, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-        <Text style={styles.emoji}>🌱</Text>
-        <Text style={styles.title}>Welcome to uboth</Text>
-        <Text style={styles.subtitle}>Let's get you set up</Text>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardView}
+      >
+        <Animated.View style={[styles.inner, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+          <Text style={styles.emoji}>🌱</Text>
+          <Text style={styles.title}>Before we begin</Text>
+          <Text style={styles.subtitle}>We'll connect you two on the next screen.</Text>
 
-        <View style={styles.form}>
-          <Text style={styles.label}>What's your first name?</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Your name"
-            placeholderTextColor={colors.textLight}
-            value={name}
-            onChangeText={setName}
-            autoCapitalize="words"
-          />
+          <View style={styles.form}>
+            <Text style={styles.label}>What's your first name?</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Your name"
+              placeholderTextColor={colors.textLight}
+              value={name}
+              onChangeText={setName}
+              autoCapitalize="words"
+              returnKeyType="next"
+              onSubmitEditing={() => partnerInputRef.current?.focus()}
+              blurOnSubmit={false}
+            />
 
-          <Text style={styles.label}>Who's your meditation partner?</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Partner's name"
-            placeholderTextColor={colors.textLight}
-            value={partnerName}
-            onChangeText={setPartnerName}
-            autoCapitalize="words"
-          />
+            <Text style={styles.label}>Who's your meditation partner?</Text>
+            <TextInput
+              ref={partnerInputRef}
+              style={styles.input}
+              placeholder="Partner's name"
+              placeholderTextColor={colors.textLight}
+              value={partnerName}
+              onChangeText={setPartnerName}
+              autoCapitalize="words"
+              returnKeyType="done"
+              onSubmitEditing={handleContinue}
+            />
 
-          <TouchableOpacity
-            style={[styles.button, (!name || !partnerName) && styles.buttonDisabled]}
-            onPress={handleContinue}
-            disabled={!name || !partnerName}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.buttonText}>Continue</Text>
-          </TouchableOpacity>
-        </View>
-      </Animated.View>
+            <TouchableOpacity
+              style={[styles.button, (!name || !partnerName) && styles.buttonDisabled]}
+              onPress={handleContinue}
+              disabled={!name || !partnerName}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.buttonText}>Continue</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      </KeyboardAvoidingView>
     </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+  },
+  keyboardView: {
     flex: 1,
     justifyContent: 'center',
   },

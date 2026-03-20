@@ -336,7 +336,7 @@ export default function OnboardingScreen({ onComplete }) {
         {slide.isFinal && (
           <Animated.View style={{ opacity: entranceAnim }}>
             <Text style={styles.finePrint}>
-              No account required to explore — sign in anytime.
+              Sign in takes 3 seconds with Apple — no passwords, ever.
             </Text>
           </Animated.View>
         )}
@@ -372,7 +372,7 @@ const styles = StyleSheet.create({
     height: RING_SIZE,
     borderRadius: RING_SIZE / 2,
     borderWidth: 1,
-    borderColor: 'rgba(168, 198, 134, 0.15)',
+    borderColor: 'rgba(196, 112, 90, 0.12)',
   },
   ringInner: {
     position: 'absolute',
@@ -382,7 +382,7 @@ const styles = StyleSheet.create({
     height: RING_SIZE * 0.65,
     borderRadius: (RING_SIZE * 0.65) / 2,
     borderWidth: 1,
-    borderColor: 'rgba(168, 198, 134, 0.12)',
+    borderColor: 'rgba(196, 112, 90, 0.08)',
   },
 
   // ── Skip ──

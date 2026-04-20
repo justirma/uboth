@@ -126,42 +126,33 @@ function SlideIllustration({ slide, entranceAnim }) {
           { opacity: entranceAnim, transform: [{ translateY }] },
         ]}
       >
-        <Animated.Text
-          style={[
-            styles.emoji,
-            { transform: [{ scale: breatheAnim }] },
-          ]}
-        >
-          {slide.emoji}
-        </Animated.Text>
+        <Animated.View style={{ transform: [{ scale: breatheAnim }] }}>
+          <Text style={styles.emoji}>{slide.emoji}</Text>
+        </Animated.View>
 
-        <Animated.Text
+        <Animated.View
           style={[
-            styles.emoji,
             styles.emojiGap,
-            // Mirror the second leaf so they face each other
-            slide.mirrorSecondary && { transform: [{ scaleX: -1 }, { scale: breatheAnim }] },
-            !slide.mirrorSecondary && { transform: [{ scale: breatheAnim }] },
+            slide.mirrorSecondary
+              ? { transform: [{ scaleX: -1 }, { scale: breatheAnim }] }
+              : { transform: [{ scale: breatheAnim }] },
           ]}
         >
-          {slide.secondaryEmoji}
-        </Animated.Text>
+          <Text style={styles.emoji}>{slide.secondaryEmoji}</Text>
+        </Animated.View>
       </Animated.View>
     );
   }
 
   return (
-    <Animated.Text
-      style={[
-        styles.emoji,
-        {
-          opacity: entranceAnim,
-          transform: [{ scale: breatheAnim }, { translateY }],
-        },
-      ]}
+    <Animated.View
+      style={{
+        opacity: entranceAnim,
+        transform: [{ scale: breatheAnim }, { translateY }],
+      }}
     >
-      {slide.emoji}
-    </Animated.Text>
+      <Text style={styles.emoji}>{slide.emoji}</Text>
+    </Animated.View>
   );
 }
 

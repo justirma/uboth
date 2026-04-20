@@ -44,7 +44,7 @@ export default function SessionHistoryScreen({ userId, partnerId, userName, isPr
   const loadSessions = async () => {
     try {
       const coupleId = [userId, partnerId].sort().join('_');
-      const sessionsRef = ref(database, 'sessions');
+      const sessionsRef = ref(database, `sessions/${coupleId}`);
       const snapshot = await get(sessionsRef);
 
       if (!snapshot.exists()) {
@@ -56,11 +56,15 @@ export default function SessionHistoryScreen({ userId, partnerId, userName, isPr
       const allSessions = snapshot.val();
       const coupleSessionList = [];
 
-      Object.keys(allSessions).forEach((date) => {
-        const daySession = allSessions[date][coupleId];
+      Object.keys(allSessions).forEach((key) => {
+        const daySession = allSessions[key];
         if (daySession && daySession.bothCompleted) {
+          // Extract base date — keys are "2026-04-15" or "2026-04-15_2"
+          const dateMatch = key.match(/^(\d{4}-\d{2}-\d{2})/);
+          const date = dateMatch ? dateMatch[1] : key;
           coupleSessionList.push({
             date,
+            sessionKey: key,
             ...daySession,
           });
         }
@@ -88,7 +92,7 @@ export default function SessionHistoryScreen({ userId, partnerId, userName, isPr
     const hasAppreciations = me.appreciation || myPartner.appreciation;
 
     return (
-      <View key={date} style={styles.sessionCard}>
+      <View key={session.sessionKey || date} style={styles.sessionCard}>
         <Text style={styles.sessionDate}>{formatDate(date)}</Text>
 
         <View style={styles.moodSection}>

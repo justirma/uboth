@@ -54,9 +54,9 @@ export default function WaitingScreen({ partnerName, onCancel }) {
 
   return (
     <LinearGradient colors={gradients.screenBg} style={styles.container}>
-      <Animated.Text style={[styles.plant, { transform: [{ scale: pulseAnim }] }]}>
-        🌿
-      </Animated.Text>
+      <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+        <Text style={styles.plant}>🌿</Text>
+      </Animated.View>
 
       <Animated.Text style={[styles.waitingText, { opacity: textFade }]}>
         Your nudge is on the way

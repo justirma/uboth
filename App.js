@@ -10,11 +10,6 @@ import { colors } from './theme';
 // Once written, onboarding is never shown again on this device.
 const ONBOARDING_COMPLETE_KEY = 'ONBOARDING_COMPLETE';
 
-// ⚠️  DEV ONLY — flip to true to skip Apple Sign-In during local testing.
-// Firebase writes will still fail without real auth; for UI iteration only.
-// Must be false before any TestFlight / App Store build.
-const DEV_BYPASS_AUTH = __DEV__ && true;
-
 // Configure how notifications appear when app is in foreground
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -55,6 +50,8 @@ async function sendPushNotification(expoPushToken, title, body) {
   });
 }
 
+let DEV_CONFIG = { bypassAuth: false };
+try { DEV_CONFIG = require('./devConfig').DEV_CONFIG; } catch {}
 import { getTodayPrompt } from './prompts';
 import { useSubscription } from './subscription';
 import NameInput from './screens/NameInput';
@@ -74,9 +71,7 @@ import OnboardingScreen from './screens/OnboardingScreen';
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(
-    DEV_BYPASS_AUTH ? { name: 'Irma', partnerName: 'Courtney', partnerId: 'dev-partner' } : null
-  );
+  const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [connectionError, setConnectionError] = useState(false);
   const [retryCountdown, setRetryCountdown] = useState(30);
@@ -96,6 +91,8 @@ export default function App() {
   const [totalPractices, setTotalPractices] = useState(0);
   const [lastPractice, setLastPractice] = useState(null);
   const [streak, setStreak] = useState(0);
+  const [meditationStartedAt, setMeditationStartedAt] = useState(null);
+  const [sessionPaused, setSessionPaused] = useState(false);
 
   // Derived once — used in session logic, subscription check, and stats
   const coupleId = user && userProfile?.partnerId
@@ -126,6 +123,14 @@ export default function App() {
     }
     setHasSeenOnboarding(true);
   };
+
+  // DEV: anonymous sign-in → skip profile/pairing and jump to mood selector
+  useEffect(() => {
+    if (DEV_CONFIG.bypassAuth && user?.isAnonymous && !loading) {
+      setUserProfile({ name: 'Dev', partnerName: 'Partner', partnerId: 'dev-partner' });
+      setCurrentScreen('moodSelector');
+    }
+  }, [user, loading]);
 
   // Register push token when user is logged in
   useEffect(() => {
@@ -201,7 +206,7 @@ export default function App() {
           const userRef = ref(database, `users/${firebaseUser.uid}`);
           const snapshot = await get(userRef);
           setUserProfile(snapshot.exists() ? snapshot.val() : null);
-        } else if (!DEV_BYPASS_AUTH) {
+        } else {
           setUserProfile(null);
         }
         setConnectionError(false);
@@ -224,7 +229,7 @@ export default function App() {
     if (!user || !userProfile || !userProfile.partnerId) return;
 
     const coupleId = [user.uid, userProfile.partnerId].sort().join('_');
-    const snapshot = await get(ref(database, 'sessions'));
+    const snapshot = await get(ref(database, `sessions/${coupleId}`));
 
     if (!snapshot.exists()) {
       setTotalPractices(0);
@@ -235,7 +240,7 @@ export default function App() {
 
     const allSessions = snapshot.val();
     const completedDates = Object.keys(allSessions)
-      .filter(date => allSessions[date][coupleId]?.bothCompleted)
+      .filter(date => allSessions[date]?.bothCompleted)
       .sort()
       .reverse(); // descending: most recent first
 
@@ -273,14 +278,19 @@ export default function App() {
     }
   }, [userProfile]);
 
+  useEffect(() => {
+    if (currentScreen === 'home' && userProfile?.partnerId) {
+      getPracticeStats();
+    }
+  }, [currentScreen]);
+
   // Listen for partner joining (moves from waiting -> bothReady)
   useEffect(() => {
     if (!user || !userProfile || !userProfile.partnerId) return;
     if (currentScreen !== 'waiting') return;
+    if (!sessionId) return;
 
-    const todayDate = new Date().toLocaleDateString('en-CA');
-    const coupleId = [user.uid, userProfile.partnerId].sort().join('_');
-    const bothReadyRef = ref(database, `sessions/${todayDate}/${coupleId}/bothReady`);
+    const bothReadyRef = ref(database, `sessions/${sessionId}/bothReady`);
 
     const unsubscribe = onValue(bothReadyRef, (snapshot) => {
       if (snapshot.val() === true) {
@@ -289,7 +299,38 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [user, userProfile, currentScreen]);
+  }, [user, userProfile, currentScreen, sessionId]);
+
+  // Listen for partner's post mood when we arrive at moodReveal before them
+  useEffect(() => {
+    if (currentScreen !== 'moodReveal' || !sessionId || !user || partnerPostMood) return;
+
+    const unsubscribe = onValue(ref(database, `sessions/${sessionId}`), (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+      const partnerObj = data.partner1?.userId === user.uid ? data.partner2 : data.partner1;
+      if (partnerObj?.postMood) setPartnerPostMood(partnerObj.postMood);
+      if (partnerObj?.preMood && !partnerPreMood) setPartnerPreMood(partnerObj.preMood);
+    });
+
+    return () => unsubscribe();
+  }, [currentScreen, sessionId, user?.uid, partnerPostMood]);
+
+  // Listen for partner pause/exit during meditation
+  useEffect(() => {
+    if (currentScreen !== 'meditating' || !sessionId || !user) return;
+
+    const unsubscribe = onValue(ref(database, `sessions/${sessionId}`), (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+      setSessionPaused(data.paused === true);
+      if (data.exitedBy && data.exitedBy !== user.uid) {
+        setCurrentScreen('home');
+      }
+    });
+
+    return () => unsubscribe();
+  }, [currentScreen, sessionId, user?.uid]);
 
   const handleNameSubmit = async (userName, partnerName) => {
     const profile = {
@@ -323,18 +364,22 @@ export default function App() {
 
   const startMeditationSession = async (mood) => {
     if (!userProfile || !userProfile.partnerId) return;
-    if (!user) {
-      // Dev bypass — skip Firebase, go straight to meditation
-      setPreMood(mood);
-      setCurrentScreen('bothReady');
-      return;
-    }
-
     const todayDate = new Date().toLocaleDateString('en-CA');
     const coupleId = [user.uid, userProfile.partnerId].sort().join('_');
 
+    let sessionKey = todayDate;
     try {
-      const sessionRef = ref(database, `sessions/${todayDate}/${coupleId}`);
+      // Find the right session key for today — skip already-completed sessions
+      let suffix = 2;
+      while (suffix <= 11) {
+        const snap = await get(ref(database, `sessions/${coupleId}/${sessionKey}`));
+        const existing = snap.val();
+        if (!existing || !existing.bothCompleted) break;
+        sessionKey = `${todayDate}_${suffix}`;
+        suffix++;
+      }
+
+      const sessionRef = ref(database, `sessions/${coupleId}/${sessionKey}`);
       const sessionSnapshot = await get(sessionRef);
       const existingSession = sessionSnapshot.val();
 
@@ -346,14 +391,14 @@ export default function App() {
 
       if (canJoin) {
         // Partner is waiting, we're joining as partner2
-        await set(ref(database, `sessions/${todayDate}/${coupleId}/partner2`), {
+        await set(ref(database, `sessions/${coupleId}/${sessionKey}/partner2`), {
           userId: user.uid,
           name: userProfile.name,
           preMood: mood.value,
           ready: true,
           timestamp: Date.now(),
         });
-        await set(ref(database, `sessions/${todayDate}/${coupleId}/bothReady`), true);
+        await set(ref(database, `sessions/${coupleId}/${sessionKey}/bothReady`), true);
       } else {
         // We're first (or restarting) — create fresh session
         await set(sessionRef, {
@@ -388,10 +433,10 @@ export default function App() {
         }
       }
     } catch (e) {
-      console.warn('Failed to write session to Firebase (expected in dev bypass mode):', e);
+      console.warn('Failed to write session to Firebase:', e);
     }
 
-    setSessionId(`${todayDate}/${coupleId}`);
+    setSessionId(`${coupleId}/${sessionKey}`);
     setPreMood(mood);
     setCurrentScreen('waiting');
   };
@@ -424,24 +469,29 @@ export default function App() {
     );
   }
 
+  // DEV bypass: wait for mock profile to be set before rendering screens
+  if (DEV_CONFIG.bypassAuth && user?.isAnonymous && !userProfile) {
+    return <View style={styles.container}><Text style={styles.title}>uboth</Text></View>;
+  }
+
   // ── Gate 3: first-time user → show onboarding ──
   // Onboarding always appears before sign-in so there's no auth dependency.
-  if (!hasSeenOnboarding) {
+  if (!hasSeenOnboarding && !(DEV_CONFIG.bypassAuth && user?.isAnonymous)) {
     return <OnboardingScreen onComplete={handleOnboardingComplete} />;
   }
 
   // ── Gate 4: not authenticated → sign in ──
-  if (!user && !DEV_BYPASS_AUTH) {
+  if (!user) {
     return <AuthScreen />;
   }
 
   // No profile
-  if (!userProfile || !userProfile.name) {
+  if ((!userProfile || !userProfile.name) && !(DEV_CONFIG.bypassAuth && user?.isAnonymous)) {
     return <NameInput onComplete={handleNameSubmit} />;
   }
 
   // Not paired
-  if (!userProfile.partnerId) {
+  if (!userProfile?.partnerId && !(DEV_CONFIG.bypassAuth && user?.isAnonymous)) {
     return (
       <PairingScreen
         userId={user?.uid ?? 'dev-user'}
@@ -539,6 +589,7 @@ if (currentScreen === 'moodReveal') {
       userPostMood={postMood}
       partnerPreMood={partnerPreMood}
       partnerPostMood={partnerPostMood}
+      partnerPending={!partnerPostMood}
       onContinue={() => setCurrentScreen('appreciation')}
     />
   );
@@ -549,8 +600,25 @@ if (currentScreen === 'meditating') {
   return (
     <MeditationScreen
       prompt={todayPrompt}
+      startedAt={meditationStartedAt}
+      partnerPaused={sessionPaused}
       onComplete={() => setCurrentScreen('transition')}
-      onExit={() => setCurrentScreen('home')}
+      onExit={async () => {
+        if (sessionId) {
+          try { await set(ref(database, `sessions/${sessionId}/exitedBy`), user.uid); } catch (e) {}
+        }
+        setCurrentScreen('home');
+      }}
+      onPause={async () => {
+        if (sessionId) {
+          try { await set(ref(database, `sessions/${sessionId}/paused`), true); } catch (e) {}
+        }
+      }}
+      onResume={async () => {
+        if (sessionId) {
+          try { await set(ref(database, `sessions/${sessionId}/paused`), false); } catch (e) {}
+        }
+      }}
     />
   );
 }
@@ -565,7 +633,23 @@ if (currentScreen === 'transition') {
     return (
       <BothReadyScreen
         partnerName={userProfile.partnerName}
-        onStartMeditation={() => setCurrentScreen('meditating')}
+        onStartMeditation={async () => {
+          // Use existing timestamp if partner already started, otherwise create one
+          let startedAt = Date.now();
+          if (sessionId) {
+            try {
+              const snap = await get(ref(database, `sessions/${sessionId}/meditationStartedAt`));
+              if (snap.val()) {
+                startedAt = snap.val();
+              } else {
+                await set(ref(database, `sessions/${sessionId}/meditationStartedAt`), startedAt);
+              }
+            } catch (e) {}
+          }
+          setMeditationStartedAt(startedAt);
+          setSessionPaused(false);
+          setCurrentScreen('meditating');
+        }}
         onCancel={() => setCurrentScreen('home')}
       />
     );

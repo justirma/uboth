@@ -27,9 +27,15 @@ function getMood(value) {
   return MOOD_MAP[key] || null;
 }
 
-function MoodBadge({ moodValue }) {
+function MoodBadge({ moodValue, pending }) {
   const mood = getMood(moodValue);
-  if (!mood) return <Text style={styles.moodMissing}>—</Text>;
+  if (!mood) {
+    return (
+      <View style={[styles.moodBadge, styles.moodPending]}>
+        <Text style={styles.moodMissing}>{pending ? '…' : '—'}</Text>
+      </View>
+    );
+  }
   return (
     <View style={[styles.moodBadge, { backgroundColor: mood.color + '50' }]}>
       <Text style={styles.moodEmoji}>{mood.emoji}</Text>
@@ -38,7 +44,7 @@ function MoodBadge({ moodValue }) {
   );
 }
 
-function PartnerColumn({ name, preMood, postMood, entranceAnim }) {
+function PartnerColumn({ name, preMood, postMood, postPending, entranceAnim }) {
   const translateY = entranceAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [20, 0],
@@ -49,7 +55,7 @@ function PartnerColumn({ name, preMood, postMood, entranceAnim }) {
       <Text style={styles.columnName}>{name}</Text>
       <MoodBadge moodValue={preMood} />
       <Text style={styles.arrow}>↓</Text>
-      <MoodBadge moodValue={postMood} />
+      <MoodBadge moodValue={postMood} pending={postPending} />
     </Animated.View>
   );
 }
@@ -61,6 +67,7 @@ export default function MoodRevealScreen({
   userPostMood,
   partnerPreMood,
   partnerPostMood,
+  partnerPending,
   onContinue,
 }) {
   const leftAnim = useRef(new Animated.Value(0)).current;
@@ -109,13 +116,19 @@ export default function MoodRevealScreen({
           name={partnerName}
           preMood={partnerPreMood}
           postMood={partnerPostMood}
+          postPending={partnerPending}
           entranceAnim={rightAnim}
         />
       </View>
 
       <Animated.View style={{ opacity: ctaAnim }}>
-        <TouchableOpacity style={styles.button} onPress={onContinue} activeOpacity={0.85}>
-          <Text style={styles.buttonText}>Continue</Text>
+        <TouchableOpacity
+          style={[styles.button, partnerPending && styles.buttonDisabled]}
+          onPress={onContinue}
+          disabled={partnerPending}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.buttonText}>{partnerPending ? 'Waiting for them…' : 'Continue'}</Text>
         </TouchableOpacity>
       </Animated.View>
     </LinearGradient>
@@ -179,11 +192,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.textDark,
   },
-  moodMissing: {
+  moodPending: {
     width: 88,
     height: 88,
-    lineHeight: 88,
-    textAlign: 'center',
+    backgroundColor: colors.border,
+    borderRadius: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  moodMissing: {
     fontSize: 20,
     color: colors.textLight,
     opacity: 0.4,
@@ -205,6 +222,9 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     paddingHorizontal: 56,
     ...shadows.card,
+  },
+  buttonDisabled: {
+    opacity: 0.5,
   },
   buttonText: {
     fontSize: 17,

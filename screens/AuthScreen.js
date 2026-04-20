@@ -1,11 +1,13 @@
-import { Animated, Easing, StyleSheet, Text, View, Platform } from 'react-native';
+import { Animated, Easing, StyleSheet, Text, View, Platform, TouchableOpacity } from 'react-native';
 import { useEffect, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as AppleAuthentication from 'expo-apple-authentication';
-import { OAuthProvider, signInWithCredential } from 'firebase/auth';
+import { OAuthProvider, signInWithCredential, signInAnonymously } from 'firebase/auth';
 import { auth } from '../firebaseConfig';
 import { colors, gradients, shadows, spacing, borderRadius } from '../theme';
+let DEV_CONFIG = { bypassAuth: false };
+try { DEV_CONFIG = require('../devConfig').DEV_CONFIG; } catch {}
 
 export default function AuthScreen() {
   // Entrance animation
@@ -64,6 +66,14 @@ export default function AuthScreen() {
         <Text style={styles.tagline}>Breathe together. Grow together.</Text>
 
         <View style={styles.form}>
+          {DEV_CONFIG.bypassAuth && (
+            <TouchableOpacity
+              style={styles.devSkipButton}
+              onPress={() => signInAnonymously(auth).catch(e => alert(e.message))}
+            >
+              <Text style={styles.devSkipText}>Skip (dev only)</Text>
+            </TouchableOpacity>
+          )}
           {isAppleAvailable ? (
             <AppleAuthentication.AppleAuthenticationButton
               buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
@@ -120,5 +130,15 @@ const styles = StyleSheet.create({
     color: colors.textLight,
     fontSize: 15,
     textAlign: 'center',
+  },
+  devSkipButton: {
+    marginBottom: spacing.md,
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+  },
+  devSkipText: {
+    color: colors.textLight,
+    fontSize: 13,
+    opacity: 0.6,
   },
 });

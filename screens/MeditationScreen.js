@@ -3,46 +3,44 @@ import { useState, useEffect, useRef } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, gradients, spacing, borderRadius } from '../theme';
 
-// Runtime-detect expo-audio and provide a safe fallback/stub so the app
-// doesn't crash if the package shape differs in the user's environment.
 let createAudioPlayer;
 let setAudioModeAsync;
 try {
   const expoAudio = require('expo-audio');
-  if (expoAudio && typeof expoAudio.createAudioPlayer === 'function') {
-    createAudioPlayer = expoAudio.createAudioPlayer;
-  } else if (expoAudio && typeof expoAudio.default === 'function') {
-    createAudioPlayer = expoAudio.default;
-  } else {
-    console.warn('expo-audio player factory not found — using stubbed player.');
-    createAudioPlayer = () => ({ play: async () => {}, pause: async () => {}, seekTo: () => {}, remove: async () => {} });
-  }
-  if (expoAudio && typeof expoAudio.setAudioModeAsync === 'function') {
-    setAudioModeAsync = expoAudio.setAudioModeAsync;
-  }
+  createAudioPlayer = expoAudio.createAudioPlayer;
+  setAudioModeAsync = expoAudio.setAudioModeAsync;
 } catch (e) {
-  console.warn('Failed to require expo-audio; using fallback stub.', e);
-  createAudioPlayer = () => ({ play: async () => {}, pause: async () => {}, seekTo: () => {}, remove: async () => {} });
+  createAudioPlayer = () => ({ play: () => {}, pause: () => {}, seekTo: () => {}, remove: () => {} });
 }
 
 const startBellSource = require('../assets/bell-start.mp3');
 const endBellSource = require('../assets/bell-end.mp3');
 
-export default function MeditationScreen({ prompt, onComplete, onExit }) {
-  const [timeLeft, setTimeLeft] = useState(300);
-  const [isActive, setIsActive] = useState(true);
+const DURATION = 300;
 
+export default function MeditationScreen({ prompt, onComplete, onExit, onPause, onResume, startedAt, partnerPaused }) {
+  // Wall-clock refs — drive the timer from a shared start timestamp
+  const startRef = useRef(startedAt ?? Date.now());
+  const totalPausedMsRef = useRef(0);  // cumulative ms spent paused
+  const pauseStartMsRef = useRef(null); // when current pause began
+
+  const getTimeLeft = () =>
+    Math.max(0, DURATION - Math.floor((Date.now() - startRef.current - totalPausedMsRef.current) / 1000));
+
+  const [timeLeft, setTimeLeft] = useState(getTimeLeft);
+  const [userPaused, setUserPaused] = useState(false);
+
+  // isActive is derived — timer runs only when neither partner has paused
+  const isActive = !userPaused && !(partnerPaused ?? false);
 
   const startBellRef = useRef(null);
   const endBellRef = useRef(null);
-  // BUG-03: timestamp used to correct timer after phone lock/background
-  const startTimestampRef = useRef(null);
 
   // Animation refs
   const breatheAnim = useRef(new Animated.Value(1)).current;
   const screenFade = useRef(new Animated.Value(0)).current;
 
-  // Create audio players, configure silent mode, then fire start bell — all in sequence
+  // Load bells, configure silent mode, then fire start bell
   useEffect(() => {
     const setup = async () => {
       if (typeof setAudioModeAsync === 'function') {
@@ -50,15 +48,19 @@ export default function MeditationScreen({ prompt, onComplete, onExit }) {
       }
       try {
         startBellRef.current = createAudioPlayer(startBellSource);
-        endBellRef.current = createAudioPlayer(endBellSource);
-        startBellRef.current.seekTo(0);
-        startBellRef.current.play();
+        setTimeout(() => {
+          try { startBellRef.current?.play(); } catch (e) {}
+        }, 150);
       } catch (e) {
-        console.warn('Failed to load bell sounds', e);
+        console.warn('Failed to play start bell', e);
+      }
+      try {
+        endBellRef.current = createAudioPlayer(endBellSource);
+      } catch (e) {
+        console.warn('Failed to load end bell', e);
       }
     };
     setup();
-    startTimestampRef.current = Date.now();
 
     // Fade in content on mount
     Animated.timing(screenFade, {
@@ -66,7 +68,6 @@ export default function MeditationScreen({ prompt, onComplete, onExit }) {
       duration: 600,
       useNativeDriver: true,
     }).start();
-
 
     return () => {
       try { startBellRef.current?.remove(); } catch (e) {}
@@ -76,23 +77,22 @@ export default function MeditationScreen({ prompt, onComplete, onExit }) {
     };
   }, []);
 
-  // BUG-03: track when active period started so we can correct for phone lock
+  // Track cumulative pause time so wall-clock timer stays accurate across pauses
   useEffect(() => {
-    if (isActive) {
-      startTimestampRef.current = Date.now();
+    if (!isActive) {
+      if (pauseStartMsRef.current === null) pauseStartMsRef.current = Date.now();
     } else {
-      startTimestampRef.current = null;
+      if (pauseStartMsRef.current !== null) {
+        totalPausedMsRef.current += Date.now() - pauseStartMsRef.current;
+        pauseStartMsRef.current = null;
+      }
     }
   }, [isActive]);
 
-  // BUG-03: when app returns to foreground, catch up any missed seconds
+  // When app returns to foreground, recompute from wall clock (handles screen lock)
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active' && startTimestampRef.current !== null) {
-        const elapsed = Math.floor((Date.now() - startTimestampRef.current) / 1000);
-        setTimeLeft(prev => Math.max(0, prev - elapsed));
-        startTimestampRef.current = Date.now();
-      }
+      if (nextState === 'active') setTimeLeft(getTimeLeft());
     });
     return () => subscription.remove();
   }, []);
@@ -123,24 +123,21 @@ export default function MeditationScreen({ prompt, onComplete, onExit }) {
     }
   }, [isActive]);
 
-
-  // Meditation timer
+  // Meditation timer — wall-clock based
   useEffect(() => {
     let interval = null;
     if (isActive && timeLeft > 0) {
       interval = setInterval(() => {
-        setTimeLeft(time => time - 1);
+        setTimeLeft(getTimeLeft());
       }, 1000);
-    } else if (timeLeft === 0 && isActive) {
-      try {
-        if (endBellRef.current) {
-          endBellRef.current.seekTo(0);
-          endBellRef.current.play();
-        }
-      } catch (e) {}
-      setIsActive(false);
     }
-
+    if (timeLeft === 1 && isActive) {
+      try { endBellRef.current?.seekTo(0); } catch (e) {}
+      try { endBellRef.current?.play(); } catch (e) {}
+    }
+    if (timeLeft === 0) {
+      setUserPaused(true); // freeze timer at zero
+    }
     return () => clearInterval(interval);
   }, [isActive, timeLeft]);
 
@@ -150,56 +147,57 @@ export default function MeditationScreen({ prompt, onComplete, onExit }) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Meditation in progress
+  const handlePausePress = () => {
+    if (userPaused) {
+      setUserPaused(false);
+      onResume?.();
+    } else {
+      setUserPaused(true);
+      onPause?.();
+    }
+  };
+
+  const handleExit = () => {
+    setUserPaused(true);
+    try { startBellRef.current?.pause(); } catch (e) {}
+    try { endBellRef.current?.pause(); } catch (e) {}
+    onExit?.();
+  };
+
   return (
     <LinearGradient colors={gradients.meditation} style={styles.meditatingContainer}>
       <Animated.View style={[styles.content, { opacity: screenFade }]}>
-      <TouchableOpacity
-        style={styles.exitButton}
-        onPress={() => {
-          setIsActive(false);
-          try { startBellRef.current?.pause(); startBellRef.current?.seekTo(0); } catch (e) {}
-          try { endBellRef.current?.pause(); endBellRef.current?.seekTo(0); } catch (e) {}
-          onExit ? onExit() : onComplete();
-        }}
-      >
-        <Text style={styles.exitText}>&#x2715;</Text>
-      </TouchableOpacity>
-
-
-      {/* Breathing circle behind the timer */}
-      <View style={styles.timerWrapper}>
-        <Animated.View
-          style={[
-            styles.breatheCircle,
-            { transform: [{ scale: breatheAnim }] },
-          ]}
-        />
-        <Text style={styles.timer}>{formatTime(timeLeft)}</Text>
-      </View>
-
-      {timeLeft === 0 && (
-        <TouchableOpacity style={styles.doneButton} onPress={onComplete}>
-          <Text style={styles.doneButtonText}>We're Done</Text>
+        <TouchableOpacity style={styles.exitButton} onPress={handleExit}>
+          <Text style={styles.exitText}>&#x2715;</Text>
         </TouchableOpacity>
-      )}
 
-      {timeLeft > 0 && (
-        <TouchableOpacity
-          style={styles.pauseButton}
-          onPress={() => {
-            if (isActive) {
-              try { startBellRef.current?.pause(); } catch (e) {}
-              setIsActive(false);
-            } else {
-              try { startBellRef.current?.play(); } catch (e) {}
-              setIsActive(true);
-            }
-          }}
-        >
-          <Text style={styles.pauseText}>{isActive ? '| |' : '\u25B6'}</Text>
-        </TouchableOpacity>
-      )}
+        {/* Breathing circle behind the timer */}
+        <View style={styles.timerWrapper}>
+          <Animated.View
+            style={[
+              styles.breatheCircle,
+              { transform: [{ scale: breatheAnim }] },
+            ]}
+          />
+          <Text style={styles.timer}>{formatTime(timeLeft)}</Text>
+        </View>
+
+        {timeLeft === 0 && (
+          <TouchableOpacity style={styles.doneButton} onPress={onComplete}>
+            <Text style={styles.doneButtonText}>We're Done</Text>
+          </TouchableOpacity>
+        )}
+
+        {timeLeft > 0 && (
+          <View style={styles.pauseArea}>
+            {(partnerPaused ?? false) && !userPaused && (
+              <Text style={styles.partnerPausedText}>Partner paused</Text>
+            )}
+            <TouchableOpacity style={styles.pauseButton} onPress={handlePausePress}>
+              <Text style={styles.pauseText}>{isActive ? '| |' : '\u25B6'}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </Animated.View>
     </LinearGradient>
   );
@@ -243,9 +241,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
   },
-  pauseButton: {
+  pauseArea: {
     position: 'absolute',
     bottom: 60,
+    alignItems: 'center',
+  },
+  pauseButton: {
     padding: spacing.md,
   },
   pauseText: {
@@ -253,6 +254,12 @@ const styles = StyleSheet.create({
     color: colors.textDark,
     opacity: 0.4,
     fontWeight: '600',
+  },
+  partnerPausedText: {
+    fontSize: 13,
+    color: colors.textDark,
+    opacity: 0.5,
+    marginBottom: 4,
   },
   exitButton: {
     position: 'absolute',

@@ -64,9 +64,9 @@ export default function BothReadyScreen({ partnerName, prompt, onStartMeditation
 
   return (
     <LinearGradient colors={gradients.meditation} style={styles.container}>
-      <Animated.Text style={[styles.heart, { transform: [{ scale: heartScale }] }]}>
-        🧡
-      </Animated.Text>
+      <Animated.View style={{ transform: [{ scale: heartScale }] }}>
+        <Text style={styles.heart}>🧡</Text>
+      </Animated.View>
 
       <Text style={styles.title}>you're both here</Text>
 

@@ -10,7 +10,7 @@ const MOOD_LABELS = {
   stressed: { emoji: '\u{1F342}', label: 'Stressed' },
   foggy: { emoji: '\u{1F32B}\uFE0F', label: 'Foggy' },
   calm: { emoji: '\u{1F33F}', label: 'Calm' },
-  grateful: { emoji: '\u2600\uFE0F', label: 'Grateful' },
+  grateful: { emoji: '\u2728', label: 'Grateful' },
   peaceful: { emoji: '\u{1F33E}', label: 'Peaceful' },
 };
 

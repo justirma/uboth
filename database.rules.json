@@ -38,9 +38,9 @@
       }
     },
     "couples": {
-      "$coupleId": {
-        ".read": "auth != null && ($coupleId.beginsWith(auth.uid + '_') || $coupleId.endsWith('_' + auth.uid))",
-        ".write": "auth != null && ($coupleId.beginsWith(auth.uid + '_') || $coupleId.endsWith('_' + auth.uid))"
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null"
       }
     },
     "sessions": {
@@ -57,6 +57,12 @@
             "timestamp": {
               ".validate": "!newData.exists() || (newData.isNumber() && newData.val() <= now + 5000 && newData.val() >= now - 86400000)"
             }
+          },
+          "paused": {
+            ".validate": "newData.isBoolean()"
+          },
+          "meditationEnded": {
+            ".validate": "newData.isBoolean() && newData.val() === true"
           }
         }
       }

@@ -78,7 +78,7 @@ export default function BothReadyScreen({ partnerName, prompt, onStartMeditation
         )}
       </View>
 
-      {pausing && onCancel && (
+      {onCancel && (
         <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
           <Text style={styles.cancelText}>Not now</Text>
         </TouchableOpacity>

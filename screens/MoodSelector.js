@@ -104,7 +104,7 @@ export default function MoodSelector({ onSelectMood, isPost = false, partnerName
         ))}
       </View>
 
-      <Text style={styles.breathingCue}>during your session, try: breathe in 4 · hold 5 · out 8</Text>
+      {!isPost && <Text style={styles.breathingCue}>during your session, try: breathe in 4 · hold 5 · out 8</Text>}
 
       <Animated.View style={{ opacity: buttonAnim }}>
         <TouchableOpacity style={styles.button} onPress={handleContinue}>

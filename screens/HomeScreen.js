@@ -41,28 +41,29 @@ export default function HomeScreen({ userName, partnerName, totalPractices, last
       <SafeAreaView style={styles.safeArea}>
         <Animated.View style={[styles.inner, { opacity: entranceAnim, transform: [{ translateY }] }]}>
 
-          {/* ── Header ── */}
-          <View style={styles.header}>
-            <Text style={styles.date}>{dayName.toLowerCase()}, {monthDay.toLowerCase()}</Text>
-            <Text style={styles.names}>you & {partnerName.toLowerCase()}</Text>
-            <Text style={styles.mornings}>
-              🌱 {practicesLabel}
-              {lastPractice && ` · ${getLastPracticeText()}`}
-            </Text>
-            {streak >= 2 && (
-              <Text style={styles.streakBadge}>🔥 {streak} day streak</Text>
-            )}
-          </View>
+          {/* ── Center group: header + card ── */}
+          <View style={styles.centerGroup}>
+            <View style={styles.header}>
+              <Text style={styles.date}>{dayName.toLowerCase()}, {monthDay.toLowerCase()}</Text>
+              <Text style={styles.names}>you & {partnerName.toLowerCase()}</Text>
+              <Text style={styles.mornings}>
+                🌱 {practicesLabel}
+                {lastPractice && ` · ${getLastPracticeText()}`}
+              </Text>
+              {streak >= 2 && (
+                <Text style={styles.streakBadge}>🔥 {streak} day streak</Text>
+              )}
+            </View>
 
-          {/* ── Practice card ── */}
-          <View style={styles.card}>
-            <Text style={styles.cardEyebrow}>today's practice</Text>
-            <Text style={styles.prompt}>{todayPrompt.toLowerCase()}</Text>
-            <Text style={styles.duration}>5 min</Text>
+            <View style={styles.card}>
+              <Text style={styles.cardEyebrow}>today's practice</Text>
+              <Text style={styles.prompt}>{todayPrompt.toLowerCase()}</Text>
+              <Text style={styles.duration}>5 min</Text>
 
-            <TouchableOpacity style={styles.button} onPress={onStartPractice} activeOpacity={0.85}>
-              <Text style={styles.buttonText}>begin together</Text>
-            </TouchableOpacity>
+              <TouchableOpacity style={styles.button} onPress={onStartPractice} activeOpacity={0.85}>
+                <Text style={styles.buttonText}>begin together</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* ── Footer ── */}
@@ -91,7 +92,12 @@ const styles = StyleSheet.create({
   inner: {
     flex: 1,
     paddingHorizontal: spacing.xl,
+    paddingTop: spacing.md,
     paddingBottom: spacing.lg,
+    justifyContent: 'space-between',
+  },
+  centerGroup: {
+    flex: 1,
     justifyContent: 'center',
   },
 
@@ -169,12 +175,9 @@ const styles = StyleSheet.create({
 
   // ── Footer ──
   footer: {
-    position: 'absolute',
-    bottom: spacing.lg,
-    left: spacing.xl,
-    right: spacing.xl,
     alignItems: 'center',
     gap: spacing.md,
+    paddingBottom: spacing.xs,
   },
   journalLink: {
     fontSize: 14,

@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, database } from './firebaseConfig';
-import { ref, set, get, onValue, update } from 'firebase/database';
+import { ref, set, get, onValue, update, onDisconnect, runTransaction } from 'firebase/database';
 import { useState, useEffect, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
 import { colors } from './theme';
@@ -104,6 +104,7 @@ export default function App() {
   const notificationResponseListener = useRef();
   const loadingTimeoutRef = useRef(null);
   const countdownIntervalRef = useRef(null);
+  const pauseDisconnectRef = useRef(null);
 
   // ── Onboarding gate ──
   // Read persisted flag on first mount. This runs once and resolves
@@ -323,14 +324,30 @@ export default function App() {
     const unsubscribe = onValue(ref(database, `sessions/${sessionId}`), (snapshot) => {
       const data = snapshot.val();
       if (!data) return;
+      // Shared pause — either partner pausing stops the session for both
       setSessionPaused(data.paused === true);
-      if (data.exitedBy && data.exitedBy !== user.uid) {
+      if (data.exitedBy && data.exitedBy !== user.uid && !data.meditationEnded) {
         setCurrentScreen('home');
       }
     });
 
     return () => unsubscribe();
   }, [currentScreen, sessionId, user?.uid]);
+
+  // If this device loses connection mid-meditation, clear the shared pause so
+  // the partner's timer doesn't stay frozen forever.
+  useEffect(() => {
+    if (currentScreen !== 'meditating' || !sessionId) return;
+
+    const handler = onDisconnect(ref(database, `sessions/${sessionId}/paused`));
+    handler.set(false).catch(() => {});
+    pauseDisconnectRef.current = handler;
+
+    return () => {
+      handler.cancel().catch(() => {});
+      pauseDisconnectRef.current = null;
+    };
+  }, [currentScreen, sessionId]);
 
   const handleNameSubmit = async (userName, partnerName) => {
     const profile = {
@@ -619,6 +636,11 @@ if (currentScreen === 'meditating') {
           try { await set(ref(database, `sessions/${sessionId}/paused`), false); } catch (e) {}
         }
       }}
+      onTimerEnd={async () => {
+        if (sessionId) {
+          try { await set(ref(database, `sessions/${sessionId}/meditationEnded`), true); } catch (e) {}
+        }
+      }}
     />
   );
 }
@@ -638,11 +660,13 @@ if (currentScreen === 'transition') {
           let startedAt = Date.now();
           if (sessionId) {
             try {
-              const snap = await get(ref(database, `sessions/${sessionId}/meditationStartedAt`));
-              if (snap.val()) {
-                startedAt = snap.val();
-              } else {
-                await set(ref(database, `sessions/${sessionId}/meditationStartedAt`), startedAt);
+              const startedAtRef = ref(database, `sessions/${sessionId}/meditationStartedAt`);
+              const result = await runTransaction(startedAtRef, (current) => {
+                if (current === null || current === undefined) return startedAt;
+                return current;
+              });
+              if (result.committed && result.snapshot.exists()) {
+                startedAt = result.snapshot.val();
               }
             } catch (e) {}
           }

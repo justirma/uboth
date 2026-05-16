@@ -1,68 +1,61 @@
-import { StyleSheet, Text, View, TouchableOpacity, Animated, Easing, AppState } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Animated, Easing, AppState, SafeAreaView } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Audio } from 'expo-av';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { colors, gradients, spacing, borderRadius } from '../theme';
-
-let createAudioPlayer;
-let setAudioModeAsync;
-try {
-  const expoAudio = require('expo-audio');
-  createAudioPlayer = expoAudio.createAudioPlayer;
-  setAudioModeAsync = expoAudio.setAudioModeAsync;
-} catch (e) {
-  createAudioPlayer = () => ({ play: () => {}, pause: () => {}, seekTo: () => {}, remove: () => {} });
-}
-
-const startBellSource = require('../assets/bell-start.mp3');
-const endBellSource = require('../assets/bell-end.mp3');
 
 const DURATION = 300;
 
-export default function MeditationScreen({ prompt, onComplete, onExit, onPause, onResume, startedAt, partnerPaused }) {
-  // Wall-clock refs — drive the timer from a shared start timestamp
+export default function MeditationScreen({ prompt, onComplete, onExit, onPause, onResume, onTimerEnd, startedAt, partnerPaused }) {
   const startRef = useRef(startedAt ?? Date.now());
-  const totalPausedMsRef = useRef(0);  // cumulative ms spent paused
-  const pauseStartMsRef = useRef(null); // when current pause began
+  const totalPausedMsRef = useRef(0);
+  const pauseStartMsRef = useRef(null);
+  const timerEndedRef = useRef(false);
+  const endBellPlayedRef = useRef(false);
 
   const getTimeLeft = () =>
     Math.max(0, DURATION - Math.floor((Date.now() - startRef.current - totalPausedMsRef.current) / 1000));
 
   const [timeLeft, setTimeLeft] = useState(getTimeLeft);
-  const [userPaused, setUserPaused] = useState(false);
+  const [timerEnded, setTimerEnded] = useState(false);
 
-  // isActive is derived — timer runs only when neither partner has paused
-  const isActive = !userPaused && !(partnerPaused ?? false);
+  // Shared session pause — either partner can pause/resume for both
+  const sessionPaused = partnerPaused ?? false;
+  const isActive = !sessionPaused && !timerEnded;
 
   const startBellRef = useRef(null);
   const endBellRef = useRef(null);
 
-  // Animation refs
   const breatheAnim = useRef(new Animated.Value(1)).current;
   const screenFade = useRef(new Animated.Value(0)).current;
 
-  // Load bells, configure silent mode, then fire start bell
+  useEffect(() => {
+    activateKeepAwakeAsync();
+    return () => deactivateKeepAwake();
+  }, []);
+
   useEffect(() => {
     const setup = async () => {
-      if (typeof setAudioModeAsync === 'function') {
-        await setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});
-      }
       try {
-        startBellRef.current = createAudioPlayer(startBellSource);
-        setTimeout(() => {
-          try { startBellRef.current?.play(); } catch (e) {}
-        }, 150);
+        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+      } catch (e) {}
+      try {
+        const { sound } = await Audio.Sound.createAsync(require('../assets/bell-start.mp3'));
+        startBellRef.current = sound;
+        await sound.playAsync();
       } catch (e) {
         console.warn('Failed to play start bell', e);
       }
       try {
-        endBellRef.current = createAudioPlayer(endBellSource);
+        const { sound } = await Audio.Sound.createAsync(require('../assets/bell-end.mp3'));
+        endBellRef.current = sound;
       } catch (e) {
         console.warn('Failed to load end bell', e);
       }
     };
     setup();
 
-    // Fade in content on mount
     Animated.timing(screenFade, {
       toValue: 1,
       duration: 600,
@@ -70,8 +63,8 @@ export default function MeditationScreen({ prompt, onComplete, onExit, onPause, 
     }).start();
 
     return () => {
-      try { startBellRef.current?.remove(); } catch (e) {}
-      try { endBellRef.current?.remove(); } catch (e) {}
+      startBellRef.current?.unloadAsync().catch(() => {});
+      endBellRef.current?.unloadAsync().catch(() => {});
       startBellRef.current = null;
       endBellRef.current = null;
     };
@@ -97,7 +90,7 @@ export default function MeditationScreen({ prompt, onComplete, onExit, onPause, 
     return () => subscription.remove();
   }, []);
 
-  // Breathing circle animation — loops during active meditation
+  // Breathing circle — runs only while meditation is active
   useEffect(() => {
     if (isActive) {
       const loop = Animated.loop(
@@ -131,12 +124,14 @@ export default function MeditationScreen({ prompt, onComplete, onExit, onPause, 
         setTimeLeft(getTimeLeft());
       }, 1000);
     }
-    if (timeLeft === 1 && isActive) {
-      try { endBellRef.current?.seekTo(0); } catch (e) {}
-      try { endBellRef.current?.play(); } catch (e) {}
+    if (timeLeft <= 1 && !endBellPlayedRef.current) {
+      endBellPlayedRef.current = true;
+      endBellRef.current?.setPositionAsync(0).then(() => endBellRef.current?.playAsync()).catch(() => {});
     }
-    if (timeLeft === 0) {
-      setUserPaused(true); // freeze timer at zero
+    if (timeLeft === 0 && !timerEndedRef.current) {
+      timerEndedRef.current = true;
+      setTimerEnded(true);
+      onTimerEnd?.();
     }
     return () => clearInterval(interval);
   }, [isActive, timeLeft]);
@@ -147,64 +142,68 @@ export default function MeditationScreen({ prompt, onComplete, onExit, onPause, 
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Either partner can pause or resume the shared session
   const handlePausePress = () => {
-    if (userPaused) {
-      setUserPaused(false);
-      onResume?.();
-    } else {
-      setUserPaused(true);
+    if (isActive) {
       onPause?.();
+    } else {
+      onResume?.();
     }
   };
 
   const handleExit = () => {
-    setUserPaused(true);
-    try { startBellRef.current?.pause(); } catch (e) {}
-    try { endBellRef.current?.pause(); } catch (e) {}
+    startBellRef.current?.pauseAsync().catch(() => {});
+    endBellRef.current?.pauseAsync().catch(() => {});
     onExit?.();
   };
 
   return (
     <LinearGradient colors={gradients.meditation} style={styles.meditatingContainer}>
-      <Animated.View style={[styles.content, { opacity: screenFade }]}>
-        <TouchableOpacity style={styles.exitButton} onPress={handleExit}>
-          <Text style={styles.exitText}>&#x2715;</Text>
-        </TouchableOpacity>
-
-        {/* Breathing circle behind the timer */}
-        <View style={styles.timerWrapper}>
-          <Animated.View
-            style={[
-              styles.breatheCircle,
-              { transform: [{ scale: breatheAnim }] },
-            ]}
-          />
-          <Text style={styles.timer}>{formatTime(timeLeft)}</Text>
-        </View>
-
-        {timeLeft === 0 && (
-          <TouchableOpacity style={styles.doneButton} onPress={onComplete}>
-            <Text style={styles.doneButtonText}>We're Done</Text>
-          </TouchableOpacity>
-        )}
-
-        {timeLeft > 0 && (
-          <View style={styles.pauseArea}>
-            {(partnerPaused ?? false) && !userPaused && (
-              <Text style={styles.partnerPausedText}>Partner paused</Text>
-            )}
-            <TouchableOpacity style={styles.pauseButton} onPress={handlePausePress}>
-              <Text style={styles.pauseText}>{isActive ? '| |' : '\u25B6'}</Text>
+      <SafeAreaView style={styles.safeArea}>
+        <Animated.View style={[styles.content, { opacity: screenFade }]}>
+          {timeLeft > 0 && (
+            <TouchableOpacity style={styles.exitButton} onPress={handleExit}>
+              <Text style={styles.exitText}>&#x2715;</Text>
             </TouchableOpacity>
+          )}
+
+          <View style={styles.timerWrapper}>
+            <Animated.View
+              style={[
+                styles.breatheCircle,
+                { transform: [{ scale: breatheAnim }] },
+              ]}
+            />
+            <Text style={styles.timer}>{formatTime(timeLeft)}</Text>
           </View>
-        )}
-      </Animated.View>
+
+          {timeLeft === 0 && (
+            <TouchableOpacity style={styles.doneButton} onPress={onComplete}>
+              <Text style={styles.doneButtonText}>We're Done</Text>
+            </TouchableOpacity>
+          )}
+
+          {timeLeft > 0 && (
+            <View style={styles.pauseArea}>
+              {sessionPaused && (
+                <Text style={styles.pausedLabel}>Paused</Text>
+              )}
+              <TouchableOpacity style={styles.pauseButton} onPress={handlePausePress}>
+                <Text style={styles.pauseText}>{isActive ? '| |' : '▶'}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </Animated.View>
+      </SafeAreaView>
     </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   meditatingContainer: {
+    flex: 1,
+  },
+  safeArea: {
     flex: 1,
   },
   content: {
@@ -243,7 +242,7 @@ const styles = StyleSheet.create({
   },
   pauseArea: {
     position: 'absolute',
-    bottom: 60,
+    bottom: 24,
     alignItems: 'center',
   },
   pauseButton: {
@@ -255,7 +254,7 @@ const styles = StyleSheet.create({
     opacity: 0.4,
     fontWeight: '600',
   },
-  partnerPausedText: {
+  pausedLabel: {
     fontSize: 13,
     color: colors.textDark,
     opacity: 0.5,
@@ -263,7 +262,7 @@ const styles = StyleSheet.create({
   },
   exitButton: {
     position: 'absolute',
-    top: 60,
+    top: 16,
     right: 20,
     padding: spacing.sm,
   },

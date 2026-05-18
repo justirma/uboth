@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Modal, ScrollView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, database } from './firebaseConfig';
 import { ref, set, get, onValue, update, onDisconnect, runTransaction } from 'firebase/database';
@@ -93,6 +93,8 @@ export default function App() {
   const [streak, setStreak] = useState(0);
   const [meditationStartedAt, setMeditationStartedAt] = useState(null);
   const [sessionPaused, setSessionPaused] = useState(false);
+  const [devScreen, setDevScreen] = useState(null);
+  const [devPickerOpen, setDevPickerOpen] = useState(false);
 
   // Derived once — used in session logic, subscription check, and stats
   const coupleId = user && userProfile?.partnerId
@@ -458,279 +460,328 @@ export default function App() {
     setCurrentScreen('waiting');
   };
 
-  // ── Gate 1: waiting for AsyncStorage to resolve ──
-  // hasSeenOnboarding === null means we haven't checked yet.
-  // Show a minimal splash rather than a flash of the wrong screen.
-  if (hasSeenOnboarding === null || loading) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.title}>uboth</Text>
-      </View>
-    );
-  }
+  const DEV_MOCK = {
+    userName: 'Lloyd',
+    partnerName: 'Carlos',
+    preMood: { emoji: '🌊', label: 'Anxious', value: 'anxious' },
+    postMood: { emoji: '🌿', label: 'Calm', value: 'calm' },
+    partnerPreMood: { emoji: '🍂', label: 'Stressed', value: 'stressed' },
+    partnerPostMood: { emoji: '✨', label: 'Grateful', value: 'grateful' },
+    totalPractices: 12,
+    streak: 5,
+    lastPractice: '2026-05-17',
+  };
 
-  // ── Gate 2: Firebase unreachable ──
-  if (connectionError) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.title}>uboth</Text>
-        <Text style={styles.outageHeading}>Having trouble connecting</Text>
-        <Text style={styles.outageBody}>
-          Your data is safe. We'll keep trying to reconnect.
-        </Text>
-        <Text style={styles.outageCountdown}>Retrying in {retryCountdown}s</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={retryConnection}>
-          <Text style={styles.retryButtonText}>Retry now</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  const DEV_SCREENS = [
+    'onboarding', 'auth', 'nameInput', 'pairing', 'home',
+    'moodSelector', 'waiting', 'bothReady', 'meditating',
+    'transition', 'postMood', 'moodReveal', 'appreciation',
+    'history', 'paywall',
+  ];
 
-  // DEV bypass: wait for mock profile to be set before rendering screens
-  if (DEV_CONFIG.bypassAuth && user?.isAnonymous && !userProfile) {
-    return <View style={styles.container}><Text style={styles.title}>uboth</Text></View>;
-  }
+  const renderDevScreen = (screen) => {
+    const noop = () => {};
+    switch (screen) {
+      case 'onboarding':   return <OnboardingScreen onComplete={noop} />;
+      case 'auth':         return <AuthScreen />;
+      case 'nameInput':    return <NameInput onComplete={noop} />;
+      case 'pairing':      return <PairingScreen userId="dev" userName={DEV_MOCK.userName} partnerName={DEV_MOCK.partnerName} onPaired={noop} />;
+      case 'home':         return <HomeScreen userName={DEV_MOCK.userName} partnerName={DEV_MOCK.partnerName} totalPractices={DEV_MOCK.totalPractices} lastPractice={DEV_MOCK.lastPractice} streak={DEV_MOCK.streak} onSignOut={noop} onStartPractice={noop} onViewHistory={noop} />;
+      case 'moodSelector': return <MoodSelector onSelectMood={noop} partnerName={DEV_MOCK.partnerName} onBack={noop} />;
+      case 'waiting':      return <WaitingScreen partnerName={DEV_MOCK.partnerName} onCancel={noop} />;
+      case 'bothReady':    return <BothReadyScreen partnerName={DEV_MOCK.partnerName} onStartMeditation={noop} onCancel={noop} />;
+      case 'meditating':   return <MeditationScreen prompt={todayPrompt} startedAt={Date.now()} partnerPaused={false} onComplete={noop} onExit={noop} onPause={noop} onResume={noop} onTimerEnd={noop} />;
+      case 'transition':   return <TransitionScreen onComplete={noop} />;
+      case 'postMood':     return <MoodSelector isPost={true} onSelectMood={noop} />;
+      case 'moodReveal':   return <MoodRevealScreen userName={DEV_MOCK.userName} partnerName={DEV_MOCK.partnerName} userPreMood={DEV_MOCK.preMood} userPostMood={DEV_MOCK.postMood} partnerPreMood={DEV_MOCK.partnerPreMood} partnerPostMood={DEV_MOCK.partnerPostMood} partnerPending={false} onContinue={noop} />;
+      case 'appreciation': return <AppreciationScreen userName={DEV_MOCK.userName} partnerName={DEV_MOCK.partnerName} userPreMood={DEV_MOCK.preMood} userPostMood={DEV_MOCK.postMood} partnerPreMood={DEV_MOCK.partnerPreMood} partnerPostMood={DEV_MOCK.partnerPostMood} onComplete={noop} />;
+      case 'history':      return <SessionHistoryScreen userId="dev" partnerId="dev-partner" userName={DEV_MOCK.userName} isPremium={false} onBack={noop} onUpgrade={noop} />;
+      case 'paywall':      return <PaywallScreen onBack={noop} />;
+      default:             return null;
+    }
+  };
 
-  // ── Gate 3: first-time user → show onboarding ──
-  // Onboarding always appears before sign-in so there's no auth dependency.
-  if (!hasSeenOnboarding && !(DEV_CONFIG.bypassAuth && user?.isAnonymous)) {
-    return <OnboardingScreen onComplete={handleOnboardingComplete} />;
-  }
+  const renderScreen = () => {
+    if (__DEV__ && devScreen) return renderDevScreen(devScreen);
 
-  // ── Gate 4: not authenticated → sign in ──
-  if (!user) {
-    return <AuthScreen />;
-  }
+    // ── Gate 1: waiting for AsyncStorage to resolve ──
+    if (hasSeenOnboarding === null || loading) {
+      return <View style={styles.container}><Text style={styles.title}>uboth</Text></View>;
+    }
 
-  // No profile
-  if ((!userProfile || !userProfile.name) && !(DEV_CONFIG.bypassAuth && user?.isAnonymous)) {
-    return <NameInput onComplete={handleNameSubmit} />;
-  }
+    // ── Gate 2: Firebase unreachable ──
+    if (connectionError) {
+      return (
+        <View style={styles.container}>
+          <Text style={styles.title}>uboth</Text>
+          <Text style={styles.outageHeading}>Having trouble connecting</Text>
+          <Text style={styles.outageBody}>
+            Your data is safe. We'll keep trying to reconnect.
+          </Text>
+          <Text style={styles.outageCountdown}>Retrying in {retryCountdown}s</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={retryConnection}>
+            <Text style={styles.retryButtonText}>Retry now</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
 
-  // Not paired
-  if (!userProfile?.partnerId && !(DEV_CONFIG.bypassAuth && user?.isAnonymous)) {
-    return (
-      <PairingScreen
-        userId={user?.uid ?? 'dev-user'}
-        userName={userProfile.name}
-        partnerName={userProfile.partnerName}
-        onPaired={handlePaired}
-      />
-    );
-  }
+    // DEV bypass: wait for mock profile to be set before rendering screens
+    if (DEV_CONFIG.bypassAuth && user?.isAnonymous && !userProfile) {
+      return <View style={styles.container}><Text style={styles.title}>uboth</Text></View>;
+    }
 
-  // Screen routing for paired users
-  // Show appreciation screen
-  if (currentScreen === 'appreciation') {
-  return (
-    <AppreciationScreen
-      userName={userProfile.name}
-      partnerName={userProfile.partnerName}
-      userPreMood={preMood}
-      userPostMood={postMood}
-      partnerPreMood={partnerPreMood}
-      partnerPostMood={partnerPostMood}
-      onComplete={async (appreciationText) => {
-        try {
-          // Save appreciation to Firebase
-          if (sessionId && user) {
-            const sessionRef = ref(database, `sessions/${sessionId}`);
-            const snapshot = await get(sessionRef);
-            const sessionData = snapshot.val();
+    // ── Gate 3: first-time user → show onboarding ──
+    if (!hasSeenOnboarding && !(DEV_CONFIG.bypassAuth && user?.isAnonymous)) {
+      return <OnboardingScreen onComplete={handleOnboardingComplete} />;
+    }
 
-            if (sessionData) {
-              const partnerKey = sessionData.partner1?.userId === user.uid ? 'partner1' : 'partner2';
+    // ── Gate 4: not authenticated → sign in ──
+    if (!user) return <AuthScreen />;
 
-              if (appreciationText && appreciationText.trim()) {
-                await set(ref(database, `sessions/${sessionId}/${partnerKey}/appreciation`), appreciationText);
-              }
+    // No profile
+    if ((!userProfile || !userProfile.name) && !(DEV_CONFIG.bypassAuth && user?.isAnonymous)) {
+      return <NameInput onComplete={handleNameSubmit} />;
+    }
 
-              // Re-fetch to get the freshest completed flags from both partners
-              // (partner may have finished postMood while we were on AppreciationScreen)
-              const freshSnapshot = await get(sessionRef);
-              const freshData = freshSnapshot.val();
-              if (freshData?.partner1?.completed && freshData?.partner2?.completed) {
-                await set(ref(database, `sessions/${sessionId}/bothCompleted`), true);
-                await set(ref(database, `sessions/${sessionId}/completedAt`), Date.now());
-                await getPracticeStats();
-              }
-            }
-          }
-        } catch (e) {
-          console.warn('Failed to save appreciation:', e);
-        } finally {
-          setCurrentScreen('home');
-        }
-      }}
-    />
-  );
-}
+    // Not paired
+    if (!userProfile?.partnerId && !(DEV_CONFIG.bypassAuth && user?.isAnonymous)) {
+      return (
+        <PairingScreen
+          userId={user?.uid ?? 'dev-user'}
+          userName={userProfile.name}
+          partnerName={userProfile.partnerName}
+          onPaired={handlePaired}
+        />
+      );
+    }
 
-// Show post-mood selector
-if (currentScreen === 'postMood') {
-  return (
-    <MoodSelector
-      isPost={true}
-      onSelectMood={async (mood) => {
-        setPostMood(mood);
-
-        if (sessionId && user) {
-          const sessionRef = ref(database, `sessions/${sessionId}`);
-          const snapshot = await get(sessionRef);
-          const sessionData = snapshot.val();
-
-          const partnerKey = sessionData.partner1.userId === user.uid ? 'partner1' : 'partner2';
-          const partnerObj = partnerKey === 'partner1' ? sessionData.partner2 : sessionData.partner1;
-
-          await set(ref(database, `sessions/${sessionId}/${partnerKey}/postMood`), mood.value);
-          await set(ref(database, `sessions/${sessionId}/${partnerKey}/completed`), true);
-          await set(ref(database, `sessions/${sessionId}/${partnerKey}/completedAt`), Date.now());
-
-          // Capture partner's moods for the reveal screen (may be null if they haven't finished yet)
-          setPartnerPreMood(partnerObj?.preMood || null);
-          setPartnerPostMood(partnerObj?.postMood || null);
-        }
-
-        setCurrentScreen('moodReveal');
-      }}
-    />
-  );
-}
-// Mood reveal screen
-if (currentScreen === 'moodReveal') {
-  return (
-    <MoodRevealScreen
-      userName={userProfile.name}
-      partnerName={userProfile.partnerName}
-      userPreMood={preMood}
-      userPostMood={postMood}
-      partnerPreMood={partnerPreMood}
-      partnerPostMood={partnerPostMood}
-      partnerPending={!partnerPostMood}
-      onContinue={() => setCurrentScreen('appreciation')}
-    />
-  );
-}
-
-// Meditation screen
-if (currentScreen === 'meditating') {
-  return (
-    <MeditationScreen
-      prompt={todayPrompt}
-      startedAt={meditationStartedAt}
-      partnerPaused={sessionPaused}
-      onComplete={() => setCurrentScreen('transition')}
-      onExit={async () => {
-        if (sessionId) {
-          try { await set(ref(database, `sessions/${sessionId}/exitedBy`), user.uid); } catch (e) {}
-        }
-        setCurrentScreen('home');
-      }}
-      onPause={async () => {
-        if (sessionId) {
-          try { await set(ref(database, `sessions/${sessionId}/paused`), true); } catch (e) {}
-        }
-      }}
-      onResume={async () => {
-        if (sessionId) {
-          try { await set(ref(database, `sessions/${sessionId}/paused`), false); } catch (e) {}
-        }
-      }}
-      onTimerEnd={async () => {
-        if (sessionId) {
-          try { await set(ref(database, `sessions/${sessionId}/meditationEnded`), true); } catch (e) {}
-        }
-      }}
-    />
-  );
-}
-
-// Post-meditation landing moment
-if (currentScreen === 'transition') {
-  return <TransitionScreen onComplete={() => setCurrentScreen('postMood')} />;
-}
-
-  // Both ready screen
-  if (currentScreen === 'bothReady') {
-    return (
-      <BothReadyScreen
-        partnerName={userProfile.partnerName}
-        onStartMeditation={async () => {
-          // Use existing timestamp if partner already started, otherwise create one
-          let startedAt = Date.now();
-          if (sessionId) {
+    if (currentScreen === 'appreciation') {
+      return (
+        <AppreciationScreen
+          userName={userProfile.name}
+          partnerName={userProfile.partnerName}
+          userPreMood={preMood}
+          userPostMood={postMood}
+          partnerPreMood={partnerPreMood}
+          partnerPostMood={partnerPostMood}
+          onComplete={async (appreciationText) => {
             try {
-              const startedAtRef = ref(database, `sessions/${sessionId}/meditationStartedAt`);
-              const result = await runTransaction(startedAtRef, (current) => {
-                if (current === null || current === undefined) return startedAt;
-                return current;
-              });
-              if (result.committed && result.snapshot.exists()) {
-                startedAt = result.snapshot.val();
+              if (sessionId && user) {
+                const sessionRef = ref(database, `sessions/${sessionId}`);
+                const snapshot = await get(sessionRef);
+                const sessionData = snapshot.val();
+                if (sessionData) {
+                  const partnerKey = sessionData.partner1?.userId === user.uid ? 'partner1' : 'partner2';
+                  if (appreciationText && appreciationText.trim()) {
+                    await set(ref(database, `sessions/${sessionId}/${partnerKey}/appreciation`), appreciationText);
+                  }
+                  const freshSnapshot = await get(sessionRef);
+                  const freshData = freshSnapshot.val();
+                  if (freshData?.partner1?.completed && freshData?.partner2?.completed) {
+                    await set(ref(database, `sessions/${sessionId}/bothCompleted`), true);
+                    await set(ref(database, `sessions/${sessionId}/completedAt`), Date.now());
+                    await getPracticeStats();
+                  }
+                }
               }
-            } catch (e) {}
-          }
-          setMeditationStartedAt(startedAt);
-          setSessionPaused(false);
-          setCurrentScreen('meditating');
-        }}
-        onCancel={() => setCurrentScreen('home')}
-      />
-    );
-  }
-  
-  // Waiting screen
-  if (currentScreen === 'waiting') {
-    return (
-      <WaitingScreen
-        partnerName={userProfile.partnerName}
-        onCancel={() => setCurrentScreen('home')}
-      />
-    );
-  }
+            } catch (e) {
+              console.warn('Failed to save appreciation:', e);
+            } finally {
+              setCurrentScreen('home');
+            }
+          }}
+        />
+      );
+    }
 
-  // Session history
-  if (currentScreen === 'history') {
+    if (currentScreen === 'postMood') {
+      return (
+        <MoodSelector
+          isPost={true}
+          onSelectMood={async (mood) => {
+            setPostMood(mood);
+            if (sessionId && user) {
+              const sessionRef = ref(database, `sessions/${sessionId}`);
+              const snapshot = await get(sessionRef);
+              const sessionData = snapshot.val();
+              const partnerKey = sessionData.partner1.userId === user.uid ? 'partner1' : 'partner2';
+              const partnerObj = partnerKey === 'partner1' ? sessionData.partner2 : sessionData.partner1;
+              await set(ref(database, `sessions/${sessionId}/${partnerKey}/postMood`), mood.value);
+              await set(ref(database, `sessions/${sessionId}/${partnerKey}/completed`), true);
+              await set(ref(database, `sessions/${sessionId}/${partnerKey}/completedAt`), Date.now());
+              setPartnerPreMood(partnerObj?.preMood || null);
+              setPartnerPostMood(partnerObj?.postMood || null);
+            }
+            setCurrentScreen('moodReveal');
+          }}
+        />
+      );
+    }
+
+    if (currentScreen === 'moodReveal') {
+      return (
+        <MoodRevealScreen
+          userName={userProfile.name}
+          partnerName={userProfile.partnerName}
+          userPreMood={preMood}
+          userPostMood={postMood}
+          partnerPreMood={partnerPreMood}
+          partnerPostMood={partnerPostMood}
+          partnerPending={!partnerPostMood}
+          onContinue={() => setCurrentScreen('appreciation')}
+        />
+      );
+    }
+
+    if (currentScreen === 'meditating') {
+      return (
+        <MeditationScreen
+          prompt={todayPrompt}
+          startedAt={meditationStartedAt}
+          partnerPaused={sessionPaused}
+          onComplete={() => setCurrentScreen('transition')}
+          onExit={async () => {
+            if (sessionId) {
+              try { await set(ref(database, `sessions/${sessionId}/exitedBy`), user.uid); } catch (e) {}
+            }
+            setCurrentScreen('home');
+          }}
+          onPause={async () => {
+            if (sessionId) {
+              try { await set(ref(database, `sessions/${sessionId}/paused`), true); } catch (e) {}
+            }
+          }}
+          onResume={async () => {
+            if (sessionId) {
+              try { await set(ref(database, `sessions/${sessionId}/paused`), false); } catch (e) {}
+            }
+          }}
+          onTimerEnd={async () => {
+            if (sessionId) {
+              try { await set(ref(database, `sessions/${sessionId}/meditationEnded`), true); } catch (e) {}
+            }
+          }}
+        />
+      );
+    }
+
+    if (currentScreen === 'transition') {
+      return <TransitionScreen onComplete={() => setCurrentScreen('postMood')} />;
+    }
+
+    if (currentScreen === 'bothReady') {
+      return (
+        <BothReadyScreen
+          partnerName={userProfile.partnerName}
+          onStartMeditation={async () => {
+            let startedAt = Date.now();
+            if (sessionId) {
+              try {
+                const startedAtRef = ref(database, `sessions/${sessionId}/meditationStartedAt`);
+                const result = await runTransaction(startedAtRef, (current) => {
+                  if (current === null || current === undefined) return startedAt;
+                  return current;
+                });
+                if (result.committed && result.snapshot.exists()) {
+                  startedAt = result.snapshot.val();
+                }
+              } catch (e) {}
+            }
+            setMeditationStartedAt(startedAt);
+            setSessionPaused(false);
+            setCurrentScreen('meditating');
+          }}
+          onCancel={() => setCurrentScreen('home')}
+        />
+      );
+    }
+
+    if (currentScreen === 'waiting') {
+      return <WaitingScreen partnerName={userProfile.partnerName} onCancel={() => setCurrentScreen('home')} />;
+    }
+
+    if (currentScreen === 'history') {
+      return (
+        <SessionHistoryScreen
+          userId={user?.uid ?? 'dev-user'}
+          partnerId={userProfile.partnerId}
+          userName={userProfile.name}
+          isPremium={isPremium}
+          onBack={() => setCurrentScreen('home')}
+          onUpgrade={() => setCurrentScreen('paywall')}
+        />
+      );
+    }
+
+    if (currentScreen === 'paywall') {
+      return <PaywallScreen onBack={() => setCurrentScreen('history')} />;
+    }
+
+    if (currentScreen === 'moodSelector') {
+      return (
+        <MoodSelector
+          onSelectMood={startMeditationSession}
+          partnerName={userProfile.partnerName}
+          onBack={() => setCurrentScreen('home')}
+        />
+      );
+    }
+
     return (
-      <SessionHistoryScreen
-        userId={user?.uid ?? 'dev-user'}
-        partnerId={userProfile.partnerId}
+      <HomeScreen
         userName={userProfile.name}
-        isPremium={isPremium}
-        onBack={() => setCurrentScreen('home')}
-        onUpgrade={() => setCurrentScreen('paywall')}
-      />
-    );
-  }
-
-  // Paywall
-  if (currentScreen === 'paywall') {
-    return <PaywallScreen onBack={() => setCurrentScreen('history')} />;
-  }
-
-  // Mood selector
-  if (currentScreen === 'moodSelector') {
-    return (
-      <MoodSelector
-        onSelectMood={startMeditationSession}
         partnerName={userProfile.partnerName}
-        onBack={() => setCurrentScreen('home')}
+        totalPractices={totalPractices}
+        lastPractice={lastPractice}
+        streak={streak}
+        onSignOut={handleSignOut}
+        onStartPractice={() => setCurrentScreen('moodSelector')}
+        onViewHistory={() => setCurrentScreen('history')}
       />
     );
-  }
+  };
 
-  // Home screen
   return (
-    <HomeScreen
-      userName={userProfile.name}
-      partnerName={userProfile.partnerName}
-      totalPractices={totalPractices}
-      lastPractice={lastPractice}
-      streak={streak}
-      onSignOut={handleSignOut}
-      onStartPractice={() => setCurrentScreen('moodSelector')}
-      onViewHistory={() => setCurrentScreen('history')}
-    />
+    <View style={{ flex: 1 }}>
+      {renderScreen()}
+      {__DEV__ && (
+        <>
+          <TouchableOpacity style={devStyles.fab} onPress={() => setDevPickerOpen(true)}>
+            <Text style={devStyles.fabText}>DEV</Text>
+          </TouchableOpacity>
+          <Modal visible={devPickerOpen} transparent animationType="slide">
+            <View style={devStyles.overlay}>
+              <View style={devStyles.sheet}>
+                <Text style={devStyles.sheetTitle}>Jump to screen</Text>
+                <ScrollView>
+                  {DEV_SCREENS.map(s => (
+                    <TouchableOpacity
+                      key={s}
+                      style={[devStyles.item, devScreen === s && devStyles.itemActive]}
+                      onPress={() => { setDevScreen(s); setDevPickerOpen(false); }}
+                    >
+                      <Text style={[devStyles.itemText, devScreen === s && devStyles.itemTextActive]}>{s}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  {devScreen && (
+                    <TouchableOpacity
+                      style={devStyles.backItem}
+                      onPress={() => { setDevScreen(null); setDevPickerOpen(false); }}
+                    >
+                      <Text style={devStyles.backText}>← Back to app</Text>
+                    </TouchableOpacity>
+                  )}
+                </ScrollView>
+                <TouchableOpacity style={devStyles.closeBtn} onPress={() => setDevPickerOpen(false)}>
+                  <Text style={devStyles.closeBtnText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+        </>
+      )}
+    </View>
   );
 }
 
@@ -780,4 +831,46 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: colors.textDark,
   },
+});
+
+const devStyles = StyleSheet.create({
+  fab: {
+    position: 'absolute',
+    bottom: 52,
+    right: 16,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    zIndex: 9999,
+  },
+  fabText: { color: '#fff', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
+  overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
+  sheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 20,
+    maxHeight: '75%',
+  },
+  sheetTitle: { fontSize: 16, fontWeight: '700', marginBottom: 12, color: '#111' },
+  item: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    marginBottom: 4,
+  },
+  itemActive: { backgroundColor: '#D4956A20' },
+  itemText: { fontSize: 15, color: '#333' },
+  itemTextActive: { color: '#D4956A', fontWeight: '600' },
+  backItem: { paddingVertical: 12, paddingHorizontal: 14, marginTop: 8 },
+  backText: { fontSize: 15, color: '#888' },
+  closeBtn: {
+    marginTop: 12,
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  closeBtnText: { fontSize: 15, color: '#555' },
 });

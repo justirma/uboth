@@ -14,7 +14,10 @@
     },
     "production": {
       "distribution": "store",
-      "autoIncrement": true
+      "autoIncrement": true,
+      "ios": {
+        "appleTeamId": "3HFTD4UR7U"
+      }
     }
   },
   "submit": {

@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>uboth — A daily moment for two</title>
+  <meta name="description" content="uboth is a shared ritual for two people who want to slow down together, even from a distance." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg:         #FBF5EE;
+      --primary:    #D4956A;
+      --terra:      #C4705A;
+      --cream:      #E8C4A8;
+      --text:       #3D1F14;
+      --text-light: #7A4E3B;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 300;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* ── Hero ── */
+    .hero {
+      flex: 1;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 80px 24px 160px;
+      min-height: 100svh;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 70% 55% at 60% 20%, rgba(196, 112, 90, 0.18) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 50% at 20% 80%, rgba(212, 149, 106, 0.14) 0%, transparent 65%),
+        radial-gradient(ellipse 80% 40% at 50% 100%, rgba(232, 196, 168, 0.22) 0%, transparent 60%);
+      pointer-events: none;
+    }
+
+    .hero::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+      background-size: 200px 200px;
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 1;
+      max-width: 480px;
+    }
+
+    .wordmark {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(3.5rem, 12vw, 6rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      line-height: 1;
+      opacity: 0;
+      animation: fadeUp 1s cubic-bezier(0.22, 1, 0.36, 1) 0.1s forwards;
+    }
+
+    .tagline {
+      font-family: 'DM Serif Display', serif;
+      font-style: italic;
+      font-size: clamp(1rem, 3.5vw, 1.2rem);
+      color: var(--primary);
+      letter-spacing: 0.01em;
+      margin-top: 14px;
+      opacity: 0;
+      animation: fadeUp 1s cubic-bezier(0.22, 1, 0.36, 1) 0.25s forwards;
+    }
+
+    .divider {
+      width: 32px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--primary), transparent);
+      margin: 28px auto;
+      opacity: 0;
+      animation: fadeUp 1s cubic-bezier(0.22, 1, 0.36, 1) 0.35s forwards;
+    }
+
+    .description {
+      font-size: clamp(0.9rem, 2.5vw, 1rem);
+      color: var(--text-light);
+      line-height: 1.75;
+      max-width: 360px;
+      margin: 0 auto;
+      opacity: 0;
+      animation: fadeUp 1s cubic-bezier(0.22, 1, 0.36, 1) 0.45s forwards;
+    }
+
+    .badge-wrap {
+      margin-top: 44px;
+      opacity: 0;
+      animation: fadeUp 1s cubic-bezier(0.22, 1, 0.36, 1) 0.6s forwards;
+    }
+
+    .badge-wrap a {
+      display: inline-block;
+      transition: transform 0.2s ease, opacity 0.2s ease;
+    }
+
+    .badge-wrap a:hover {
+      transform: translateY(-2px);
+      opacity: 0.85;
+    }
+
+    /* Official Apple App Store badge */
+    .badge-wrap img {
+      height: 44px;
+      width: auto;
+      display: block;
+    }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid rgba(196, 112, 90, 0.12);
+      padding: 52px 24px 44px;
+    }
+
+    .footer-inner {
+      max-width: 520px;
+      margin: 0 auto;
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 28px;
+      justify-content: center;
+      margin-bottom: 44px;
+    }
+
+    .footer-links a {
+      font-size: 0.8rem;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-light);
+      text-decoration: none;
+      transition: color 0.2s ease;
+    }
+
+    .footer-links a:hover { color: var(--primary); }
+
+    .footer-section {
+      margin-bottom: 36px;
+    }
+
+    .footer-section h3 {
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.05rem;
+      font-weight: 400;
+      color: var(--text);
+      margin-bottom: 10px;
+    }
+
+    .footer-section p {
+      font-size: 0.85rem;
+      color: var(--text-light);
+      line-height: 1.75;
+    }
+
+    .footer-section a {
+      color: var(--primary);
+      text-decoration: none;
+      border-bottom: 1px solid rgba(212, 149, 106, 0.3);
+      transition: border-color 0.2s;
+    }
+
+    .footer-section a:hover { border-color: var(--primary); }
+
+    .footer-rule {
+      width: 100%;
+      height: 1px;
+      background: rgba(196, 112, 90, 0.12);
+      margin-bottom: 36px;
+    }
+
+    .footer-brand {
+      text-align: center;
+      font-size: 0.75rem;
+      color: rgba(122, 78, 59, 0.35);
+      letter-spacing: 0.04em;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 480px) {
+      .hero { padding: 64px 20px 120px; }
+      .footer-links { gap: 20px; }
+    }
+  </style>
+</head>
+<body>
+
+  <section class="hero">
+    <div class="hero-content">
+      <h1 class="wordmark">uboth</h1>
+      <p class="tagline">A daily moment for two</p>
+      <div class="divider"></div>
+      <p class="description">
+        Open together. Breathe. Check in on each other.
+        Two minutes, once a day, with someone you care about.
+      </p>
+      <div class="badge-wrap">
+        <a href="#app-store" aria-label="Download on the App Store">
+          <!-- Official Apple App Store badge -->
+          <svg xmlns="http://www.w3.org/2000/svg" width="135" height="40" viewBox="0 0 135 40" role="img" aria-label="Download on the App Store">
+            <rect width="135" height="40" rx="6" fill="#000"/>
+            <path d="M24.769 20.3c-.03-3.183 2.606-4.733 2.726-4.807-1.487-2.172-3.795-2.47-4.614-2.496-1.946-.198-3.82 1.158-4.808 1.158-.988 0-2.501-1.135-4.117-1.103-2.093.032-4.046 1.236-5.122 3.116-2.2 3.808-.561 9.42 1.561 12.5 1.051 1.51 2.287 3.198 3.908 3.138 1.579-.064 2.17-1.007 4.076-1.007 1.907 0 2.455 1.007 4.117.97 1.696-.028 2.764-1.52 3.79-3.04a17.1 17.1 0 0 0 1.73-3.524c-.04-.015-3.313-1.267-3.347-5.005zm-3.133-9.203c.849-1.056 1.427-2.497 1.27-3.957-1.228.052-2.77.838-3.655 1.872-.789.912-1.491 2.404-1.308 3.814 1.382.102 2.796-.695 3.693-1.729z" fill="#fff"/>
+            <text x="47" y="14" font-family="-apple-system, 'Helvetica Neue', sans-serif" font-size="9.5" fill="#fff" letter-spacing="0">Download on the</text>
+            <text x="46" y="28.5" font-family="-apple-system, 'Helvetica Neue', sans-serif" font-size="15" font-weight="600" fill="#fff" letter-spacing="-0.3">App Store</text>
+          </svg>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="footer-inner">
+
+      <nav class="footer-links" aria-label="Footer navigation">
+        <a href="#support">Support</a>
+        <a href="#privacy">Privacy Policy</a>
+      </nav>
+
+      <div class="footer-section" id="support">
+        <h3>Support</h3>
+        <p>
+          Questions or feedback? Write to us at
+          <a href="mailto:outsidevibras@gmail.com">outsidevibras@gmail.com</a>.
+          We read every message.
+        </p>
+      </div>
+
+      <div class="footer-rule"></div>
+
+      <div class="footer-section" id="privacy">
+        <h3>Privacy Policy</h3>
+        <p>
+          We collect only what the app needs to work: your name, your paired
+          person's identifier, session timestamps, and mood check-ins.
+          Your data is never sold or shared with third parties.
+          <a href="privacy.html">Read the full policy →</a>
+        </p>
+      </div>
+
+      <p class="footer-brand">© 2026 uboth</p>
+    </div>
+  </footer>
+
+</body>
+</html>

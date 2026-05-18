@@ -55,6 +55,7 @@ try { DEV_CONFIG = require('./devConfig').DEV_CONFIG; } catch {}
 import { getTodayPrompt } from './prompts';
 import { useSubscription } from './subscription';
 import NameInput from './screens/NameInput';
+import EmailCaptureScreen from './screens/EmailCaptureScreen';
 import PairingScreen from './screens/PairingScreen';
 import HomeScreen from './screens/HomeScreen';
 import MoodSelector from './screens/MoodSelector';
@@ -368,6 +369,18 @@ export default function App() {
     setUserProfile(prev => ({ ...profile, partnerId: prev?.partnerId }));
   };
 
+  const handleEmailCapture = async (email) => {
+    if (!user) return;
+    const updates = { emailCaptured: true };
+    if (email) updates.email = email;
+    try {
+      await update(ref(database, `users/${user.uid}`), updates);
+    } catch (e) {
+      console.warn('Failed to save email:', e);
+    }
+    setUserProfile(prev => ({ ...prev, ...updates }));
+  };
+
   const handlePaired = async (partnerId) => {
     setUserProfile(prev => ({ ...prev, partnerId }));
     // Persist so partnerId survives app restart
@@ -473,7 +486,7 @@ export default function App() {
   };
 
   const DEV_SCREENS = [
-    'onboarding', 'auth', 'nameInput', 'pairing', 'home',
+    'onboarding', 'auth', 'nameInput', 'emailCapture', 'pairing', 'home',
     'moodSelector', 'waiting', 'bothReady', 'meditating',
     'transition', 'postMood', 'moodReveal', 'appreciation',
     'history', 'paywall',
@@ -485,6 +498,7 @@ export default function App() {
       case 'onboarding':   return <OnboardingScreen onComplete={noop} />;
       case 'auth':         return <AuthScreen />;
       case 'nameInput':    return <NameInput onComplete={noop} />;
+      case 'emailCapture': return <EmailCaptureScreen onComplete={noop} />;
       case 'pairing':      return <PairingScreen userId="dev" userName={DEV_MOCK.userName} partnerName={DEV_MOCK.partnerName} onPaired={noop} />;
       case 'home':         return <HomeScreen userName={DEV_MOCK.userName} partnerName={DEV_MOCK.partnerName} totalPractices={DEV_MOCK.totalPractices} lastPractice={DEV_MOCK.lastPractice} streak={DEV_MOCK.streak} onSignOut={noop} onStartPractice={noop} onViewHistory={noop} />;
       case 'moodSelector': return <MoodSelector onSelectMood={noop} partnerName={DEV_MOCK.partnerName} onBack={noop} />;
@@ -542,6 +556,11 @@ export default function App() {
     // No profile
     if ((!userProfile || !userProfile.name) && !(DEV_CONFIG.bypassAuth && user?.isAnonymous)) {
       return <NameInput onComplete={handleNameSubmit} />;
+    }
+
+    // Email capture — shown once after name input, skippable
+    if (!userProfile?.emailCaptured && !(DEV_CONFIG.bypassAuth && user?.isAnonymous)) {
+      return <EmailCaptureScreen onComplete={handleEmailCapture} />;
     }
 
     // Not paired

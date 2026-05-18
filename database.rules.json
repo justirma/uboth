@@ -15,6 +15,12 @@
         },
         "partnerId": {
           ".validate": "newData.isString() && newData.val().length > 0"
+        },
+        "email": {
+          ".validate": "!newData.exists() || (newData.isString() && newData.val().length > 0 && newData.val().length <= 254)"
+        },
+        "emailCaptured": {
+          ".validate": "newData.isBoolean()"
         }
       }
     },
@@ -40,7 +46,7 @@
     "couples": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
-        ".write": "auth != null"
+        ".write": "auth != null && auth.uid === $uid"
       }
     },
     "sessions": {

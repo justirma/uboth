@@ -4,7 +4,16 @@ import { auth, database } from './firebaseConfig';
 import { ref, set, get, onValue, update, onDisconnect, runTransaction } from 'firebase/database';
 import { useState, useEffect, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
+import * as Sentry from '@sentry/react-native';
 import { colors } from './theme';
+import { initAnalytics, identify, track, Events } from './analytics';
+
+Sentry.init({
+  dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
+  enabled: !__DEV__,
+});
+
+initAnalytics();
 
 // Key used to persist "user has seen onboarding" across app restarts.
 // Once written, onboarding is never shown again on this device.
@@ -119,10 +128,10 @@ export default function App() {
   }, []);
 
   const handleOnboardingComplete = async () => {
+    track(Events.ONBOARDING_COMPLETE);
     try {
       await AsyncStorage.setItem(ONBOARDING_COMPLETE_KEY, 'true');
     } catch (e) {
-      // Non-fatal — worst case the user sees onboarding again next launch
       console.warn('Failed to persist onboarding state', e);
     }
     setHasSeenOnboarding(true);
@@ -136,9 +145,10 @@ export default function App() {
     }
   }, [user, loading]);
 
-  // Register push token when user is logged in
+  // Identify user in analytics on sign-in
   useEffect(() => {
     if (user) {
+      identify(user.uid);
       registerForPushNotifications(user.uid).catch(console.warn);
     }
   }, [user]);
@@ -366,6 +376,7 @@ export default function App() {
         console.error('Error saving profile:', error);
       }
     }
+    track(Events.NAME_SUBMITTED);
     setUserProfile(prev => ({ ...profile, partnerId: prev?.partnerId }));
   };
 
@@ -378,12 +389,13 @@ export default function App() {
     } catch (e) {
       console.warn('Failed to save email:', e);
     }
+    track(email ? Events.EMAIL_CAPTURED : Events.EMAIL_SKIPPED);
     setUserProfile(prev => ({ ...prev, ...updates }));
   };
 
   const handlePaired = async (partnerId) => {
+    track(Events.PAIRED);
     setUserProfile(prev => ({ ...prev, partnerId }));
-    // Persist so partnerId survives app restart
     if (user) {
       await update(ref(database, `users/${user.uid}`), { partnerId });
     }
@@ -470,6 +482,7 @@ export default function App() {
 
     setSessionId(`${coupleId}/${sessionKey}`);
     setPreMood(mood);
+    track(Events.SESSION_STARTED, { mood: mood.value });
     setCurrentScreen('waiting');
   };
 
@@ -607,6 +620,7 @@ export default function App() {
             } catch (e) {
               console.warn('Failed to save appreciation:', e);
             } finally {
+              track(Events.APPRECIATION_SENT, { hasText: !!(appreciationText?.trim()) });
               setCurrentScreen('home');
             }
           }}
@@ -632,6 +646,7 @@ export default function App() {
               setPartnerPreMood(partnerObj?.preMood || null);
               setPartnerPostMood(partnerObj?.postMood || null);
             }
+            track(Events.MOOD_SELECTED, { mood: mood.value, type: 'post' });
             setCurrentScreen('moodReveal');
           }}
         />
@@ -659,8 +674,12 @@ export default function App() {
           prompt={todayPrompt}
           startedAt={meditationStartedAt}
           partnerPaused={sessionPaused}
-          onComplete={() => setCurrentScreen('transition')}
+          onComplete={() => {
+            track(Events.SESSION_COMPLETED);
+            setCurrentScreen('transition');
+          }}
           onExit={async () => {
+            track(Events.SESSION_ABANDONED);
             if (sessionId) {
               try { await set(ref(database, `sessions/${sessionId}/exitedBy`), user.uid); } catch (e) {}
             }
@@ -734,6 +753,7 @@ export default function App() {
     }
 
     if (currentScreen === 'paywall') {
+      track(Events.PAYWALL_VIEWED);
       return <PaywallScreen onBack={() => setCurrentScreen('history')} />;
     }
 

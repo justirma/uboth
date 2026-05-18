@@ -60,7 +60,7 @@ export default function NameInput({ onComplete }) {
               blurOnSubmit={false}
             />
 
-            <Text style={styles.label}>Who's your meditation partner?</Text>
+            <Text style={styles.label}>Who are you doing this with?</Text>
             <TextInput
               ref={partnerInputRef}
               style={styles.input}

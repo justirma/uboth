@@ -253,10 +253,13 @@ export default function App() {
     }
 
     const allSessions = snapshot.val();
-    const completedDates = Object.keys(allSessions)
-      .filter(date => allSessions[date]?.bothCompleted)
-      .sort()
-      .reverse(); // descending: most recent first
+    // Session keys can be "YYYY-MM-DD" or "YYYY-MM-DD_2" for multiple sessions per day.
+    // Strip the suffix and deduplicate so each date counts once.
+    const completedDates = [...new Set(
+      Object.keys(allSessions)
+        .filter(key => allSessions[key]?.bothCompleted)
+        .map(key => key.split('_')[0])
+    )].sort().reverse(); // descending: most recent first
 
     setTotalPractices(completedDates.length);
     setLastPractice(completedDates[0] || null);

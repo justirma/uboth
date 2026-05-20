@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View, TouchableOpacity, Animated } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients, moods } from '../theme';
+import { colors, gradients, moods, SCREENSHOT_MODE } from '../theme';
 
 // Colors now sourced from theme.js moods token — never hardcoded here.
 // Emojis updated to match the warm terracotta palette's emotional register.
@@ -97,7 +97,7 @@ export default function MoodSelector({ onSelectMood, isPost = false, partnerName
               ]}
               onPress={() => handleSelect(mood)}
             >
-              <Text style={styles.moodEmoji}>{mood.emoji}</Text>
+              {!SCREENSHOT_MODE && <Text style={styles.moodEmoji}>{mood.emoji}</Text>}
               <Text style={styles.moodLabel}>{mood.label.toLowerCase()}</Text>
             </TouchableOpacity>
           </Animated.View>

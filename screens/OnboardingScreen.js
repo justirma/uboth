@@ -23,7 +23,7 @@ import {
   View,
 } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
-import { colors, borderRadius, spacing } from '../theme';
+import { colors, borderRadius, spacing, SCREENSHOT_MODE } from '../theme';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -116,6 +116,8 @@ function SlideIllustration({ slide, entranceAnim }) {
     inputRange: [0, 1],
     outputRange: [24, 0],
   });
+
+  if (SCREENSHOT_MODE) return null;
 
   if (slide.secondaryEmoji) {
     // Two-emoji layout: leaves facing each other, bubbles side by side

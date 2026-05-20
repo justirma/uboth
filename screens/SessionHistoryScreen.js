@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import { database } from '../firebaseConfig';
 import { ref, get } from 'firebase/database';
-import { colors, gradients, shadows, spacing, borderRadius } from '../theme';
+import { colors, gradients, shadows, spacing, borderRadius, SCREENSHOT_MODE } from '../theme';
 
 const MOOD_LABELS = {
   anxious: { emoji: '\u{1F30A}', label: 'Anxious' },
@@ -17,7 +17,7 @@ const MOOD_LABELS = {
 function formatMood(moodValue) {
   const mood = MOOD_LABELS[moodValue];
   if (!mood) return moodValue || '—';
-  return `${mood.emoji} ${mood.label}`;
+  return SCREENSHOT_MODE ? mood.label : `${mood.emoji} ${mood.label}`;
 }
 
 function formatDate(dateStr) {
@@ -130,7 +130,7 @@ export default function SessionHistoryScreen({ userId, partnerId, userName, isPr
                 </View>
               ) : (
                 <TouchableOpacity style={styles.lockedBubble} onPress={onUpgrade} activeOpacity={0.8}>
-                  <Text style={styles.lockedEmoji}>💌</Text>
+                  {!SCREENSHOT_MODE && <Text style={styles.lockedEmoji}>💌</Text>}
                   <View style={styles.lockedTextGroup}>
                     <Text style={styles.lockedTitle}>{myPartner.name || 'Partner'} left you a note</Text>
                     <Text style={styles.lockedSub}>uboth+ · Tap to unlock</Text>
@@ -160,7 +160,7 @@ export default function SessionHistoryScreen({ userId, partnerId, userName, isPr
         </View>
       ) : sessions.length === 0 ? (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyEmoji}>{'\u{1F331}'}</Text>
+          {!SCREENSHOT_MODE && <Text style={styles.emptyEmoji}>{'\u{1F331}'}</Text>}
           <Text style={styles.emptyText}>No sessions yet</Text>
           <Text style={styles.emptySubtext}>Complete your first practice together to see it here.</Text>
         </View>
@@ -177,7 +177,7 @@ export default function SessionHistoryScreen({ userId, partnerId, userName, isPr
 
           {!isPremium && sessions.length > FREE_SESSION_LIMIT && (
             <TouchableOpacity style={styles.upgradeCard} onPress={onUpgrade} activeOpacity={0.85}>
-              <Text style={styles.upgradeEmoji}>📖</Text>
+              {!SCREENSHOT_MODE && <Text style={styles.upgradeEmoji}>📖</Text>}
               <Text style={styles.upgradeTitle}>
                 {sessions.length - FREE_SESSION_LIMIT} more {sessions.length - FREE_SESSION_LIMIT === 1 ? 'session' : 'sessions'} in your history
               </Text>

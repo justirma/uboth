@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ref, set, update, onValue, get } from 'firebase/database';
 import { LinearGradient } from 'expo-linear-gradient';
 import { database, auth } from '../firebaseConfig';
-import { colors, gradients, shadows, spacing, borderRadius } from '../theme';
+import { colors, gradients, shadows, spacing, borderRadius, SCREENSHOT_MODE } from '../theme';
 
 const INVITE_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -140,7 +140,7 @@ export default function PairingScreen({ userId, userName, partnerName, onPaired 
         </TouchableOpacity>
 
         <Animated.View style={[styles.content, { opacity: Animated.multiply(fadeAnim, switchAnim), transform: [{ translateY: slideAnim }] }]}>
-          <Text style={styles.emoji}>☀️</Text>
+          {!SCREENSHOT_MODE && <Text style={styles.emoji}>☀️</Text>}
           <Text style={styles.title}>Enter {partnerName}'s code</Text>
 
           <TextInput
@@ -171,7 +171,7 @@ export default function PairingScreen({ userId, userName, partnerName, onPaired 
       </TouchableOpacity>
 
       <Animated.View style={[styles.content, { opacity: Animated.multiply(fadeAnim, switchAnim), transform: [{ translateY: slideAnim }] }]}>
-        <Text style={styles.emoji}>🌿</Text>
+        {!SCREENSHOT_MODE && <Text style={styles.emoji}>🌿</Text>}
         <Text style={styles.title}>Share this code with {partnerName}</Text>
 
         <View style={styles.codeCard}>

@@ -9,7 +9,7 @@
 import { Animated, Easing, StyleSheet, Text, View, TouchableOpacity } from 'react-native';
 import { useEffect, useRef } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients, moods, shadows, spacing, borderRadius } from '../theme';
+import { colors, gradients, moods, shadows, spacing, borderRadius, SCREENSHOT_MODE } from '../theme';
 
 const MOOD_MAP = {
   anxious:  { emoji: '🌊', label: 'Anxious',  color: moods.anxious  },
@@ -38,7 +38,7 @@ function MoodBadge({ moodValue, pending }) {
   }
   return (
     <View style={[styles.moodBadge, { backgroundColor: mood.color + '50' }]}>
-      <Text style={styles.moodEmoji}>{mood.emoji}</Text>
+      {!SCREENSHOT_MODE && <Text style={styles.moodEmoji}>{mood.emoji}</Text>}
       <Text style={styles.moodLabel}>{mood.label}</Text>
     </View>
   );

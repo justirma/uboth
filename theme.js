@@ -1,3 +1,6 @@
+// Set true to hide all emojis for App Store screenshots
+export const SCREENSHOT_MODE = false;
+
 // Shared color constants and design tokens for uboth
 // Import these instead of hardcoding color values in screens
 //

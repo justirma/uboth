@@ -1,7 +1,7 @@
 import { Animated, Easing, StyleSheet, Text, View, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients, shadows, spacing, borderRadius } from '../theme';
+import { colors, gradients, shadows, spacing, borderRadius, SCREENSHOT_MODE } from '../theme';
 
 export default function AppreciationScreen({ userName, partnerName, onComplete }) {
   const [appreciation, setAppreciation] = useState('');
@@ -34,7 +34,7 @@ export default function AppreciationScreen({ userName, partnerName, onComplete }
         style={styles.keyboard}
       >
         <Animated.View style={[styles.content, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-          <Text style={styles.emoji}>💛</Text>
+          {!SCREENSHOT_MODE && <Text style={styles.emoji}>💛</Text>}
           <Text style={styles.title}>One thing I appreciate about you today:</Text>
 
           <TextInput

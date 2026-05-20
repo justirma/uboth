@@ -13,7 +13,7 @@
 import { Alert, Animated, Easing, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useEffect, useRef } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
-import { borderRadius, colors, gradients, shadows, spacing } from '../theme';
+import { borderRadius, colors, gradients, shadows, spacing, SCREENSHOT_MODE } from '../theme';
 
 const FEATURES = [
   { emoji: '💌', text: 'Read your partner\'s appreciation after every session' },
@@ -69,7 +69,7 @@ export default function PaywallScreen({ onBack }) {
         <View style={styles.featureList}>
           {FEATURES.map((f, i) => (
             <View key={i} style={styles.featureRow}>
-              <Text style={styles.featureEmoji}>{f.emoji}</Text>
+              {!SCREENSHOT_MODE && <Text style={styles.featureEmoji}>{f.emoji}</Text>}
               <Text style={styles.featureText}>{f.text}</Text>
             </View>
           ))}

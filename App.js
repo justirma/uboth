@@ -117,6 +117,7 @@ export default function App() {
   const loadingTimeoutRef = useRef(null);
   const countdownIntervalRef = useRef(null);
   const pauseDisconnectRef = useRef(null);
+  const pendingAppleRef = useRef(null);
 
   // ── Onboarding gate ──
   // Read persisted flag on first mount. This runs once and resolves
@@ -219,7 +220,24 @@ export default function App() {
         if (firebaseUser) {
           const userRef = ref(database, `users/${firebaseUser.uid}`);
           const snapshot = await get(userRef);
-          setUserProfile(snapshot.exists() ? snapshot.val() : null);
+          if (snapshot.exists()) {
+            setUserProfile(snapshot.val());
+          } else {
+            const apple = pendingAppleRef.current;
+            if (apple?.name || apple?.email) {
+              const profile = {
+                ...(apple.name && { name: apple.name }),
+                ...(apple.email && { email: apple.email }),
+                emailCaptured: true,
+                createdAt: Date.now(),
+              };
+              await set(userRef, profile);
+              setUserProfile(profile);
+            } else {
+              setUserProfile(null);
+            }
+          }
+          pendingAppleRef.current = null;
         } else {
           setUserProfile(null);
         }
@@ -366,21 +384,26 @@ export default function App() {
   }, [currentScreen, sessionId]);
 
   const handleNameSubmit = async (userName, partnerName) => {
-    const profile = {
+    const updates = {
       name: userName,
       partnerName: partnerName,
-      createdAt: Date.now(),
     };
     if (user) {
       try {
         const userRef = ref(database, `users/${user.uid}`);
-        await set(userRef, profile);
+        // Use update to preserve fields already written from Apple Sign-In (email, emailCaptured, createdAt)
+        const snapshot = await get(userRef);
+        if (snapshot.exists()) {
+          await update(userRef, updates);
+        } else {
+          await set(userRef, { ...updates, createdAt: Date.now() });
+        }
       } catch (error) {
         console.error('Error saving profile:', error);
       }
     }
     track(Events.NAME_SUBMITTED);
-    setUserProfile(prev => ({ ...profile, partnerId: prev?.partnerId }));
+    setUserProfile(prev => ({ ...prev, ...updates }));
   };
 
   const handleEmailCapture = async (email) => {
@@ -567,11 +590,11 @@ export default function App() {
     }
 
     // ── Gate 4: not authenticated → sign in ──
-    if (!user) return <AuthScreen />;
+    if (!user) return <AuthScreen onAppleData={(data) => { pendingAppleRef.current = data; }} />;
 
-    // No profile
-    if ((!userProfile || !userProfile.name) && !(DEV_CONFIG.bypassAuth && user?.isAnonymous)) {
-      return <NameInput onComplete={handleNameSubmit} />;
+    // No profile or missing partner name (user name may already be set from Apple Sign-In)
+    if ((!userProfile?.name || !userProfile?.partnerName) && !(DEV_CONFIG.bypassAuth && user?.isAnonymous)) {
+      return <NameInput initialName={userProfile?.name} onComplete={handleNameSubmit} />;
     }
 
     // Email capture — shown once after name input, skippable

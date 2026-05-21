@@ -3,8 +3,8 @@ import { useState, useEffect, useRef } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, gradients, shadows, spacing, borderRadius } from '../theme';
 
-export default function NameInput({ onComplete }) {
-  const [name, setName] = useState('');
+export default function NameInput({ onComplete, initialName }) {
+  const [name, setName] = useState(initialName || '');
   const [partnerName, setPartnerName] = useState('');
   const partnerInputRef = useRef(null);
 
@@ -30,8 +30,9 @@ export default function NameInput({ onComplete }) {
   }, []);
 
   const handleContinue = () => {
-    if (name.trim() && partnerName.trim()) {
-      onComplete(name.trim(), partnerName.trim());
+    const finalName = name.trim();
+    if (finalName && partnerName.trim()) {
+      onComplete(finalName, partnerName.trim());
     }
   };
 
@@ -74,9 +75,9 @@ export default function NameInput({ onComplete }) {
             />
 
             <TouchableOpacity
-              style={[styles.button, (!name || !partnerName) && styles.buttonDisabled]}
+              style={[styles.button, (!name.trim() || !partnerName) && styles.buttonDisabled]}
               onPress={handleContinue}
-              disabled={!name || !partnerName}
+              disabled={!name.trim() || !partnerName}
               activeOpacity={0.85}
             >
               <Text style={styles.buttonText}>Continue</Text>

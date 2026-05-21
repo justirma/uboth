@@ -9,7 +9,7 @@ import { colors, gradients, shadows, spacing, borderRadius } from '../theme';
 let DEV_CONFIG = { bypassAuth: false };
 try { DEV_CONFIG = require('../devConfig').DEV_CONFIG; } catch {}
 
-export default function AuthScreen() {
+export default function AuthScreen({ onAppleData }) {
   // Entrance animation
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
@@ -40,9 +40,15 @@ export default function AuthScreen() {
         ],
       });
 
-      const { identityToken } = appleCredential;
+      const { identityToken, fullName, email } = appleCredential;
       if (!identityToken) {
         throw new Error('No identity token received from Apple.');
+      }
+
+      // Apple only provides name/email on the very first sign-in
+      const givenName = fullName?.givenName?.trim() || '';
+      if (givenName || email) {
+        onAppleData?.({ name: givenName, email: email || '' });
       }
 
       const provider = new OAuthProvider('apple.com');

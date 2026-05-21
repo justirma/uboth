@@ -25,8 +25,7 @@ import { database } from './firebaseConfig';
  * loading is true only on the initial Firebase read.
  */
 export function useSubscription(coupleId) {
-  // TODO: revert to false when RevenueCat is wired
-  const [isPremium, setIsPremium] = useState(true);
+  const [isPremium, setIsPremium] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

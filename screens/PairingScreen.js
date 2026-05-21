@@ -54,12 +54,17 @@ export default function PairingScreen({ userId, userName, partnerName, onPaired 
   useEffect(() => {
     async function writeCode(code) {
       const expiresAt = Date.now() + INVITE_EXPIRY_MS;
-      if (userId && userId !== 'dev-user') {
-        await set(ref(database, `inviteCodes/${code}`), { uid: userId, expiresAt });
-        await update(ref(database, `users/${userId}`), { name: userName, partnerName, inviteCode: code });
-      }
+      // Show code immediately — don't let Firebase latency/failure blank the screen
       setInviteCode(code);
       setCodeExpiresAt(expiresAt);
+      if (userId && userId !== 'dev-user') {
+        try {
+          await set(ref(database, `inviteCodes/${code}`), { uid: userId, expiresAt });
+          await update(ref(database, `users/${userId}`), { inviteCode: code });
+        } catch (e) {
+          console.warn('Failed to write invite code:', e);
+        }
+      }
     }
 
     writeCode(generateCode());
@@ -82,10 +87,14 @@ export default function PairingScreen({ userId, userName, partnerName, onPaired 
     const timer = setTimeout(async () => {
       const newCode = generateCode();
       const expiresAt = Date.now() + INVITE_EXPIRY_MS;
-      await set(ref(database, `inviteCodes/${newCode}`), { uid: userId, expiresAt });
-      await update(ref(database, `users/${userId}`), { inviteCode: newCode });
       setInviteCode(newCode);
       setCodeExpiresAt(expiresAt);
+      try {
+        await set(ref(database, `inviteCodes/${newCode}`), { uid: userId, expiresAt });
+        await update(ref(database, `users/${userId}`), { inviteCode: newCode });
+      } catch (e) {
+        console.warn('Failed to refresh invite code:', e);
+      }
     }, refreshIn > 0 ? refreshIn : 0);
     return () => clearTimeout(timer);
   }, [codeExpiresAt]);

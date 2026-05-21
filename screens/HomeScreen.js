@@ -24,11 +24,20 @@ export default function HomeScreen({ userName, partnerName, totalPractices, last
 
   const getLastPracticeText = () => {
     if (!lastPractice) return null;
-    const todayStr = new Date().toLocaleDateString('en-CA');
-    const yesterday = new Date(Date.now() - 86400000).toLocaleDateString('en-CA');
-    if (lastPractice === todayStr) return 'Today';
-    if (lastPractice === yesterday) return 'Yesterday';
-    const diffDays = Math.floor((new Date() - new Date(lastPractice)) / 86400000);
+    const localDateStr = (d) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+    const todayStr = localDateStr(new Date());
+    const yesterday = localDateStr(new Date(Date.now() - 86400000));
+    const dateOnly = lastPractice.split('_')[0];
+    if (dateOnly === todayStr) return 'Today';
+    if (dateOnly === yesterday) return 'Yesterday';
+    const parsed = new Date(dateOnly + 'T00:00:00');
+    if (isNaN(parsed)) return null;
+    const diffDays = Math.floor((new Date() - parsed) / 86400000);
     return `${diffDays} days ago`;
   };
 

@@ -8,6 +8,13 @@ import * as Sentry from '@sentry/react-native';
 import { colors } from './theme';
 import { initAnalytics, identify, track, Events } from './analytics';
 
+const localDateStr = (d = new Date()) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
 Sentry.init({
   dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
   enabled: !__DEV__,
@@ -268,9 +275,9 @@ export default function App() {
     // Premium grace: streak stays alive if last session was up to 2 days ago.
     let currentStreak = 0;
     if (completedDates.length > 0) {
-      const today = new Date().toLocaleDateString('en-CA');
-      const yesterday = new Date(Date.now() - 86400000).toLocaleDateString('en-CA');
-      const twoDaysAgo = new Date(Date.now() - 2 * 86400000).toLocaleDateString('en-CA');
+      const today = localDateStr();
+      const yesterday = localDateStr(new Date(Date.now() - 86400000));
+      const twoDaysAgo = localDateStr(new Date(Date.now() - 2 * 86400000));
       const isActive = completedDates[0] === today || completedDates[0] === yesterday
         || (isPremium && completedDates[0] === twoDaysAgo);
       if (isActive) {
@@ -411,7 +418,7 @@ export default function App() {
 
   const startMeditationSession = async (mood) => {
     if (!userProfile || !userProfile.partnerId) return;
-    const todayDate = new Date().toLocaleDateString('en-CA');
+    const todayDate = localDateStr();
     const coupleId = [user.uid, userProfile.partnerId].sort().join('_');
 
     let sessionKey = todayDate;

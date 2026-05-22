@@ -581,8 +581,8 @@ export default function App() {
       return <NameInput onComplete={handleNameSubmit} />;
     }
 
-    // Email capture — shown once after name input, skippable
-    if (!userProfile?.emailCaptured && !(DEV_CONFIG.bypassAuth && user?.isAnonymous)) {
+    // Email capture — shown once during new-user onboarding, before pairing
+    if (!userProfile?.emailCaptured && !userProfile?.partnerId && !(DEV_CONFIG.bypassAuth && user?.isAnonymous)) {
       return <EmailCaptureScreen onComplete={handleEmailCapture} />;
     }
 

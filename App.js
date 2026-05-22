@@ -226,7 +226,12 @@ export default function App() {
         if (firebaseUser) {
           const userRef = ref(database, `users/${firebaseUser.uid}`);
           const snapshot = await get(userRef);
-          setUserProfile(snapshot.exists() ? snapshot.val() : null);
+          let profile = snapshot.exists() ? snapshot.val() : null;
+          if (profile && !profile.emailCaptured && firebaseUser.email) {
+            await update(userRef, { email: firebaseUser.email, emailCaptured: true });
+            profile = { ...profile, email: firebaseUser.email, emailCaptured: true };
+          }
+          setUserProfile(profile);
         } else {
           setUserProfile(null);
         }

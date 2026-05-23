@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, TouchableOpacity, Animated, SafeAreaView, Easing, Alert } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Animated, SafeAreaView, Easing, Alert, ActionSheetIOS } from 'react-native';
 import { useEffect, useRef } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, gradients, shadows, borderRadius, spacing } from '../theme';
@@ -21,6 +21,42 @@ export default function HomeScreen({ userName, partnerName, totalPractices, last
     }).start();
   }, []);
   const translateY = entranceAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] });
+
+  const handleProfileMenu = () => {
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        options: ['Cancel', 'Sign Out', 'Delete Account'],
+        destructiveButtonIndex: 2,
+        cancelButtonIndex: 0,
+      },
+      (index) => {
+        if (index === 1) onSignOut();
+        if (index === 2) {
+          Alert.alert(
+            'Delete Account',
+            'This will permanently delete your account and all your data. This cannot be undone.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Delete Account',
+                style: 'destructive',
+                onPress: () => {
+                  Alert.alert(
+                    'Are you sure?',
+                    'Your practice history and partner connection will be permanently removed.',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Yes, Delete', style: 'destructive', onPress: onDeleteAccount },
+                    ]
+                  );
+                },
+              },
+            ]
+          );
+        }
+      }
+    );
+  };
 
   const getLastPracticeText = () => {
     if (!lastPractice) return null;
@@ -49,6 +85,15 @@ export default function HomeScreen({ userName, partnerName, totalPractices, last
     <LinearGradient colors={gradients.screenBg} style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <Animated.View style={[styles.inner, { opacity: entranceAnim, transform: [{ translateY }] }]}>
+
+          {/* ── Top bar ── */}
+          <View style={styles.topBar}>
+            <TouchableOpacity style={styles.profileBtn} onPress={handleProfileMenu} activeOpacity={0.75}>
+              <View style={styles.profileCircle}>
+                <Text style={styles.profileInitial}>{userName ? userName[0].toUpperCase() : '?'}</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
 
           {/* ── Center group: header + card ── */}
           <View style={styles.centerGroup}>
@@ -79,37 +124,6 @@ export default function HomeScreen({ userName, partnerName, totalPractices, last
           <View style={styles.footer}>
             <TouchableOpacity onPress={onViewHistory} activeOpacity={0.6}>
               <Text style={styles.journalLink}>view journal →</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={onSignOut} activeOpacity={0.6}>
-              <Text style={styles.signOutText}>sign out</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => {
-                Alert.alert(
-                  'Delete Account',
-                  'This will permanently delete your account and all your data. This cannot be undone.',
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Delete Account',
-                      style: 'destructive',
-                      onPress: () => {
-                        Alert.alert(
-                          'Are you sure?',
-                          'Your practice history and partner connection will be permanently removed.',
-                          [
-                            { text: 'Cancel', style: 'cancel' },
-                            { text: 'Yes, Delete', style: 'destructive', onPress: onDeleteAccount },
-                          ]
-                        );
-                      },
-                    },
-                  ]
-                );
-              }}
-              activeOpacity={0.6}
-            >
-              <Text style={styles.deleteAccountText}>delete account</Text>
             </TouchableOpacity>
           </View>
 
@@ -210,25 +224,36 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
+  // ── Top bar ──
+  topBar: {
+    alignItems: 'flex-end',
+    marginBottom: spacing.sm,
+  },
+  profileBtn: {
+    padding: 4,
+  },
+  profileCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileInitial: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: colors.textDark,
+  },
+
   // ── Footer ──
   footer: {
     alignItems: 'center',
-    gap: spacing.md,
     paddingBottom: spacing.xs,
   },
   journalLink: {
     fontSize: 14,
     color: colors.textLight,
     textDecorationLine: 'underline',
-  },
-  signOutText: {
-    fontSize: 12,
-    color: colors.textLight,
-    opacity: 0.4,
-  },
-  deleteAccountText: {
-    fontSize: 11,
-    color: colors.textLight,
-    opacity: 0.3,
   },
 });

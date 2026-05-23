@@ -5,6 +5,7 @@ import { deleteUser } from 'firebase/auth';
 import { ref, set, get, onValue, update, onDisconnect, runTransaction, remove } from 'firebase/database';
 import { useState, useEffect, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
+import * as Updates from 'expo-updates';
 import * as Sentry from '@sentry/react-native';
 import { colors } from './theme';
 import { initAnalytics, identify, track, Events } from './analytics';
@@ -127,6 +128,17 @@ export default function App() {
   const pauseDisconnectRef = useRef(null);
   const pendingAppleRef = useRef(null);
 
+  // ── OTA update check ──
+  useEffect(() => {
+    if (__DEV__) return;
+    Updates.checkForUpdateAsync()
+      .then(({ isAvailable }) => {
+        if (!isAvailable) return;
+        return Updates.fetchUpdateAsync().then(() => Updates.reloadAsync());
+      })
+      .catch(() => {});
+  }, []);
+
   // ── Onboarding gate ──
   // Read persisted flag on first mount. This runs once and resolves
   // hasSeenOnboarding from null to true/false so the correct screen renders.
@@ -148,7 +160,7 @@ export default function App() {
 
   // DEV: anonymous sign-in → skip profile/pairing and jump to mood selector
   useEffect(() => {
-    if (DEV_CONFIG.bypassAuth && user?.isAnonymous && !loading) {
+    if ((__DEV__ && DEV_CONFIG.bypassAuth) && user?.isAnonymous && !loading) {
       setUserProfile({ name: 'Dev', partnerName: 'Partner', partnerId: 'dev-partner' });
       setCurrentScreen('moodSelector');
     }
@@ -449,19 +461,19 @@ export default function App() {
     if (!user) return;
     const uid = user.uid;
     try {
-      // Unlink partner so they can re-pair with someone new
+      // Best-effort cleanup — don't let these block account deletion
       if (userProfile?.partnerId) {
-        await update(ref(database, `users/${userProfile.partnerId}`), { partnerId: null });
+        try { await update(ref(database, `users/${userProfile.partnerId}`), { partnerId: null }); } catch {}
       }
-      // Remove user's own invite code if one exists
       if (userProfile?.inviteCode) {
-        await remove(ref(database, `inviteCodes/${userProfile.inviteCode}`));
+        try { await remove(ref(database, `inviteCodes/${userProfile.inviteCode}`)); } catch {}
       }
       // Remove user data and push token
       await remove(ref(database, `users/${uid}`));
       await remove(ref(database, `pushTokens/${uid}`));
       // Delete the Firebase Auth account
       await deleteUser(user);
+      Alert.alert('Account Deleted', 'Your account and all associated data have been permanently deleted.');
     } catch (error) {
       if (error.code === 'auth/requires-recent-login') {
         // Apple Sign-In sessions can expire; sign out so user can re-auth and retry
@@ -628,12 +640,12 @@ export default function App() {
     }
 
     // DEV bypass: wait for mock profile to be set before rendering screens
-    if (DEV_CONFIG.bypassAuth && user?.isAnonymous && !userProfile) {
+    if ((__DEV__ && DEV_CONFIG.bypassAuth) && user?.isAnonymous && !userProfile) {
       return <View style={styles.container}><Text style={styles.title}>uboth</Text></View>;
     }
 
     // ── Gate 3: first-time user → show onboarding ──
-    if (!hasSeenOnboarding && !(DEV_CONFIG.bypassAuth && user?.isAnonymous)) {
+    if (!hasSeenOnboarding && !((__DEV__ && DEV_CONFIG.bypassAuth) && user?.isAnonymous)) {
       return <OnboardingScreen onComplete={handleOnboardingComplete} />;
     }
 
@@ -641,17 +653,17 @@ export default function App() {
     if (!user) return <AuthScreen onAppleData={(data) => { pendingAppleRef.current = data; }} />;
 
     // No profile or missing partner name (user name may already be set from Apple Sign-In)
-    if ((!userProfile?.name || !userProfile?.partnerName) && !(DEV_CONFIG.bypassAuth && user?.isAnonymous)) {
+    if ((!userProfile?.name || !userProfile?.partnerName) && !((__DEV__ && DEV_CONFIG.bypassAuth) && user?.isAnonymous)) {
       return <NameInput initialName={userProfile?.name} onComplete={handleNameSubmit} />;
     }
 
     // Email capture — shown once during new-user onboarding, before pairing
-    if (!userProfile?.emailCaptured && !userProfile?.partnerId && !(DEV_CONFIG.bypassAuth && user?.isAnonymous)) {
+    if (!userProfile?.emailCaptured && !userProfile?.partnerId && !((__DEV__ && DEV_CONFIG.bypassAuth) && user?.isAnonymous)) {
       return <EmailCaptureScreen onComplete={handleEmailCapture} />;
     }
 
     // Not paired
-    if (!userProfile?.partnerId && !(DEV_CONFIG.bypassAuth && user?.isAnonymous)) {
+    if (!userProfile?.partnerId && !((__DEV__ && DEV_CONFIG.bypassAuth) && user?.isAnonymous)) {
       return (
         <PairingScreen
           userId={user?.uid ?? 'dev-user'}

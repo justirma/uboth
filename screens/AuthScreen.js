@@ -72,7 +72,7 @@ export default function AuthScreen({ onAppleData }) {
         <Text style={styles.tagline}>Breathe together. Grow together.</Text>
 
         <View style={styles.form}>
-          {DEV_CONFIG.bypassAuth && (
+          {__DEV__ && DEV_CONFIG.bypassAuth && (
             <TouchableOpacity
               style={styles.devSkipButton}
               onPress={() => signInAnonymously(auth).catch(e => alert(e.message))}

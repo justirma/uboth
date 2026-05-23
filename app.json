@@ -37,6 +37,12 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "expo-updates",
+        {
+          "checkAutomatically": "ON_LOAD"
+        }
+      ],
       "expo-audio",
       [
         "expo-notifications",

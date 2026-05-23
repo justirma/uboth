@@ -1,7 +1,8 @@
-import { StyleSheet, Text, View, TouchableOpacity, Modal, ScrollView } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Modal, ScrollView, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, database } from './firebaseConfig';
-import { ref, set, get, onValue, update, onDisconnect, runTransaction } from 'firebase/database';
+import { deleteUser } from 'firebase/auth';
+import { ref, set, get, onValue, update, onDisconnect, runTransaction, remove } from 'firebase/database';
 import { useState, useEffect, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
 import * as Sentry from '@sentry/react-native';
@@ -444,6 +445,41 @@ export default function App() {
     auth.signOut();
   };
 
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+    const uid = user.uid;
+    try {
+      // Unlink partner so they can re-pair with someone new
+      if (userProfile?.partnerId) {
+        await update(ref(database, `users/${userProfile.partnerId}`), { partnerId: null });
+      }
+      // Remove user's own invite code if one exists
+      if (userProfile?.inviteCode) {
+        await remove(ref(database, `inviteCodes/${userProfile.inviteCode}`));
+      }
+      // Remove user data and push token
+      await remove(ref(database, `users/${uid}`));
+      await remove(ref(database, `pushTokens/${uid}`));
+      // Delete the Firebase Auth account
+      await deleteUser(user);
+    } catch (error) {
+      if (error.code === 'auth/requires-recent-login') {
+        // Apple Sign-In sessions can expire; sign out so user can re-auth and retry
+        setUserProfile(null);
+        await auth.signOut();
+        Alert.alert(
+          'Sign in to confirm',
+          'For security, please sign in again and then delete your account.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      Alert.alert('Error', 'Could not delete account. Please try again.');
+      return;
+    }
+    setUserProfile(null);
+  };
+
   const startMeditationSession = async (mood) => {
     if (!userProfile || !userProfile.partnerId) return;
     const todayDate = localDateStr();
@@ -813,6 +849,7 @@ export default function App() {
         lastPractice={lastPractice}
         streak={streak}
         onSignOut={handleSignOut}
+        onDeleteAccount={handleDeleteAccount}
         onStartPractice={() => setCurrentScreen('moodSelector')}
         onViewHistory={() => setCurrentScreen('history')}
       />

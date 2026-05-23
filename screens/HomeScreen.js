@@ -1,10 +1,10 @@
-import { StyleSheet, Text, View, TouchableOpacity, Animated, SafeAreaView, Easing } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Animated, SafeAreaView, Easing, Alert } from 'react-native';
 import { useEffect, useRef } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, gradients, shadows, borderRadius, spacing } from '../theme';
 import { getTodayPrompt } from '../prompts';
 
-export default function HomeScreen({ userName, partnerName, totalPractices, lastPractice, streak, onSignOut, onStartPractice, onViewHistory }) {
+export default function HomeScreen({ userName, partnerName, totalPractices, lastPractice, streak, onSignOut, onDeleteAccount, onStartPractice, onViewHistory }) {
   const today = new Date();
   const dayName = today.toLocaleDateString('en-US', { weekday: 'long' });
   const monthDay = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
@@ -82,6 +82,34 @@ export default function HomeScreen({ userName, partnerName, totalPractices, last
             </TouchableOpacity>
             <TouchableOpacity onPress={onSignOut} activeOpacity={0.6}>
               <Text style={styles.signOutText}>sign out</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                Alert.alert(
+                  'Delete Account',
+                  'This will permanently delete your account and all your data. This cannot be undone.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Delete Account',
+                      style: 'destructive',
+                      onPress: () => {
+                        Alert.alert(
+                          'Are you sure?',
+                          'Your practice history and partner connection will be permanently removed.',
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Yes, Delete', style: 'destructive', onPress: onDeleteAccount },
+                          ]
+                        );
+                      },
+                    },
+                  ]
+                );
+              }}
+              activeOpacity={0.6}
+            >
+              <Text style={styles.deleteAccountText}>delete account</Text>
             </TouchableOpacity>
           </View>
 
@@ -197,5 +225,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.textLight,
     opacity: 0.4,
+  },
+  deleteAccountText: {
+    fontSize: 11,
+    color: colors.textLight,
+    opacity: 0.3,
   },
 });
